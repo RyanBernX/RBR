@@ -11,7 +11,7 @@ CONTRIB_OBJS=contrib/kb07ad.o contrib/dsort.o
 
 all: exec
 
-exec: ex01 ex02 ex03 ex04 contrib_test
+exec: ex01 ex02 ex03 ex04
 
 lib: $(OBJS)
 	ar -rcs libDCRBR.a $^
