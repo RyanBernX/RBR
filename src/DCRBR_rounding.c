@@ -62,7 +62,7 @@ DCRBR_out DCRBR_rounding(adj_matrix *A, int k, DCRBR_param param) {
     if (param.shuffle) shuffling(nnode, index);
 #pragma omp parallel
     {
-#pragma omp for nowait
+#pragma omp for
       /* j is the # of row that is being optimized. */
       for (int j = 0; j < nnode; ++j){
         double alpha;
@@ -116,7 +116,7 @@ DCRBR_out DCRBR_rounding(adj_matrix *A, int k, DCRBR_param param) {
       /* TODO: If necessary, update the objective. */
 
       if (iter > roundIter){
-#pragma omp for nowait
+#pragma omp for
         /* Rounding Process */
         for (int j = 0; j < nnode; ++j){
           int maxPos = imax(k, U + j, nnode);
