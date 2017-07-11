@@ -17,12 +17,12 @@ int main(int argc, char **argv){
   int index[n], iPos = 0;
   //double data[n], data_t[n];
 
-  double data[] = {5, 7, 4, 1, 2, 6};
+  double data[] = {-5, 4, -4, -1, 2, 0};
   solve_sub_U(n, k, data, index, &iPos);
 
   printf("%d\n", iPos);
   for (int i = 0; i < iPos; ++i)
-    printf("%f\n", data[i]);
+    printf("(%d %f)\n", index[i], data[i]);
 
 /*
   srand((unsigned)time(0));

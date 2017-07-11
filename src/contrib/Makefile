@@ -9,7 +9,7 @@ all: dsort.o kb07ad.o
 dselect.o: dsort.c
 	${CC} -O3 -c -o $@ $<
 
-taroxd.o: taroxd.cpp
+solve_sub_U.o: solve_sub_U.cpp
 	${CXX} -Wall -O3 -c -o $@ $< --std=c++11 -I../../include
 
 dsort.o: kb07ad.c
@@ -18,7 +18,7 @@ dsort.o: kb07ad.c
 kb07ad.o: kb07ad.f
 	${FC} ${FLAGS} -c -o $@ $<
 
-ex01: ex01.c dselect.o dsort.o kb07ad.o taroxd.o
+ex01: ex01.c dselect.o dsort.o kb07ad.o solve_sub_U.o
 	${CC} -Wall -o ex01 -O3 $^ -lgfortran -I../../include
 
 clean:

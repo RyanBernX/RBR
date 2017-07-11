@@ -1,6 +1,6 @@
 output/
 *.o
 *.mexa64
-src/ex0[0-9]
+ex0[0-9]
 src/contrib_test
 

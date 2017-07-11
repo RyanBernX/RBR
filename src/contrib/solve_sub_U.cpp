@@ -9,13 +9,17 @@ void solve_sub_U(int n, int p, double *a, int *ia, int *iPos) {
   std::iota(ia, ia + n, 0);
 
   /* find the position of nth_element */  
-  std::nth_element(ia, ia + p - 1, ia + n, [&a](size_t i1, size_t i2) { return *(a + i1) < *(a + i2); } );
+  std::nth_element(ia, ia + p - 1, ia + n, [&a](int i1, int i2) { return *(a + i1) < *(a + i2); } );
 
   /* discard those positive or zero entries */
   double a_tmp[p], min_pos;
-  int imin_pos = -1, num = 0;
+  int ia_tmp[p], imin_pos = -1, num = 0;
   for (int i = 0; i < p; ++i){
-    if (a[ia[i]] < 0) a_tmp[num++] = a[ia[i]];
+    if (a[ia[i]] < 0){
+      a_tmp[num] = a[ia[i]];
+      ia_tmp[num] = ia[i];
+      ++num;
+    }
     else if (num == 0 && (imin_pos == -1 || a[ia[i]] < min_pos)){
       min_pos = a[ia[i]];
       imin_pos = ia[i];
@@ -24,7 +28,10 @@ void solve_sub_U(int n, int p, double *a, int *ia, int *iPos) {
 
   /* a can be safely discarded */
   if (num == 0){ num = 1; a[0] = 1; ia[0] = imin_pos; }
-  else memcpy(a, a_tmp, num * sizeof(double));
+  else {
+    memcpy(a, a_tmp, num * sizeof(double));
+    memcpy(ia, ia_tmp, num * sizeof(int));
+  }
 
   *iPos = num;
 }
