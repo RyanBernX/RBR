@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <numeric>
 #include <string.h>
 #include "DCRBR.h"
 
