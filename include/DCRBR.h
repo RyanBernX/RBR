@@ -27,6 +27,9 @@ typedef struct {
 /* from contrib */
 void dsort(int n, double *data, int *index);
 
+/* c++ plug in (nth_element) */
+void solve_sub_U(int n, int p, double *xmid, int *ixmid, int *iPos);
+
 void shuffling(int n, int *card);
 void shuffling_false(int n, int *card);
 int imax(int n, const double *x, int incx);

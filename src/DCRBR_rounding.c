@@ -241,19 +241,11 @@ DCRBR_out DCRBR_rounding_p(adj_matrix *A, int k, DCRBR_param param) {
         /* b is derived, now we solve the subproblem
            minimize b'x
            s.t x'x=1, x>=0, |x|_0<=p*/
+        int iPos;
         cblas_dcopy(k, b, 1, xmid, 1);
-        dsort(k, xmid, ixmid);
+        solve_sub_U(k, p, xmid, ixmid, &iPos);
 
-        /* locate the first index > 0 */
-        int iPos = 0;
-        for (iPos = 0; iPos < p; ++iPos)
-          if (xmid[iPos] >= 0) break;
-
-        if (iPos == 0){
-          xmid[0] = 1;
-          iPos = 1;
-        }
-        else{
+        if (iPos > 0){
           double norm = 1.0 / cblas_dnrm2(iPos, xmid, 1);
           cblas_dscal(iPos, -norm, xmid, 1);
         }
