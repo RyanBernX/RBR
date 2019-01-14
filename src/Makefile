@@ -30,6 +30,9 @@ ex03: test_large_real.o $(OBJS)
 ex04: test_large_real_p.o $(OBJS)
 	$(CC) -o ex04 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
 
+kmeans: kmeans.c
+	$(CC) -o $@ $^ -g $(LIBS) $(CFLAG)
+
 contrib/solve_sub_U.o: contrib/solve_sub_U.cpp
 	$(CXX) -c -o $@ $< $(CDEBUG) $(COPTFLAG) $(CXXFLAG)
 

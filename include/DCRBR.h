@@ -24,6 +24,11 @@ typedef struct {
   int roundIter;
 } DCRBR_param;
 
+typedef struct {
+  int maxit;
+  int verbose;
+} kmeans_param;
+
 /* from contrib */
 void dsort(int n, double *data, int *index);
 
