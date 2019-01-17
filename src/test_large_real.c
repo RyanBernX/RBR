@@ -8,6 +8,7 @@ int main(int argc, char **argv){
   adj_matrix A;
   DCRBR_out out;
   DCRBR_param param;
+  int offset = 5;
   int k;
   int threads;
   double tt = 0, obj_best = 0;
@@ -27,17 +28,18 @@ int main(int argc, char **argv){
   omp_set_num_threads(threads);
 
   srand((unsigned)time(NULL));
-  param.verbose = 1; param.maxIter = 10; param.shuffle = 0;
+  param.verbose = 1; param.maxIter = 75; param.shuffle = 1;
+  param.roundIter = param.maxIter - offset;
   for (int i = 0; i < 1; ++i){
     out = DCRBR_rounding(&A, k, param);
-    if (i == 0 || out.funct_V > obj_best){
-      obj_best = out.funct_V;
+    if (i == 0 || out.Q > obj_best){
+      obj_best = out.Q;
     }
     tt += out.elapsed;
     DCRBR_out_destroy(&out);
   }
 
-  printf("Time: %f    CC: %f    S: %f    Q: %f\n", tt, out.CC, out.S, obj_best / A.nnz);
+  printf("Time: %f    CC: %f    S: %f    Q: %f\n", tt, out.CC, out.S, obj_best);
 
   adj_matrix_destroy(&A);
   return 0;

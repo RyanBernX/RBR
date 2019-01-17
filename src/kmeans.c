@@ -26,8 +26,16 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         kmeans_param opts);
 int check_diff(int n, int *labels1, int *labels2);
 
+/*
 int main(int argc, char **argv){
-    int n = 8000, p = 50, K = 4;
+    if (argc != 4){
+        fprintf(stderr, "Usage: ./kmeans n p K\n");
+        return 1;
+    }
+    int n = strtol(argv[1], NULL, 10);
+    int p = strtol(argv[2], NULL, 10);
+    int K = strtol(argv[3], NULL, 10);
+
     int *labels = (int*)malloc(n * sizeof(int));
     double *X, *H;
     kmeans_param opts;
@@ -35,7 +43,6 @@ int main(int argc, char **argv){
     X = (double*)malloc(n * p * sizeof(double));
     H = (double*)malloc(K * p * sizeof(double));
 
-    /* read X */
     FILE *fp;
     fp = fopen("X.dat", "r");
     for (int i = 0; i < n * p; ++i){
@@ -43,15 +50,11 @@ int main(int argc, char **argv){
     }
     fclose(fp);
 
-    opts.maxit = 1000;
-    opts.init = 1;
+    opts.maxit = 100;
+    opts.init = KMEANS_SAMPLE;
     opts.verbose = 1;
     srand((unsigned)time(NULL));
     kmeans(n, p, X, K, labels, H, opts);
-
-    for (int i = 0; i < n; ++i){
-        printf("%d\n", labels[i]);
-    }
 
     for (int i = 0; i < K; ++i){
         for (int j = 0; j < p; ++j){
@@ -64,24 +67,62 @@ int main(int argc, char **argv){
     free(H);
     free(labels);
     return 0;
-}
+}*/
 
 void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         kmeans_param opts){
-    MKL_INT seed[] = {23, 23, 23, 1};
-    /* initialization */
-    if (opts.init){
-        /* random initialization */
-        for (int i = 0; i < K; ++i){
-            memcpy(H + i * p, X + (rand() % n) * p, p * sizeof(double));
-        }
-    }
-
+    MKL_INT seed[] = {23, (unsigned)time(NULL) % 4096, 23, 1};
+    double *mu, *ones;
+    
+    /* memory allocation */
     int *cluster_num = (int*)malloc(K * sizeof(int));
     int *old_labels = (int*)malloc(n * sizeof(int));
     double *XH = (double*)malloc(n * K * sizeof(double));
     double *X_norm = (double*)malloc(n * sizeof(double));
     double *H_norm = (double*)malloc(K * sizeof(double));
+
+    /* initialization */
+    switch (opts.init){
+        case KMEANS_CENTER:
+            mu = (double*)calloc(p, sizeof(double));
+            ones = (double*)malloc(n * sizeof(double));
+            for (int i = 0; i < n; ++i) ones[i] = 1;
+
+            cblas_dgemv(CblasRowMajor, CblasTrans, n, p, 1.0, X, p, ones, 1, 0.0, mu, 1);
+            cblas_dscal(p, 1.0 / n, mu, 1);
+            for (int i = 0; i < K; ++i){
+                LAPACKE_dlarnv(3, seed, p, H + i * p);
+                cblas_daxpy(p, 1.0, mu, 1, H + i * p, 1);
+            }
+            free(mu); free(ones);
+            break;
+        case KMEANS_SAMPLE:
+            for (int i = 0; i < K; ++i){
+                memcpy(H + i * p, X + (rand() % n) * p, p * sizeof(double));
+            }
+            break;
+        case KMEANS_LABELS:
+            memset(cluster_num, 0, K * sizeof(int));
+            for (int i = 0; i < n; ++i){
+                if (cluster_num[labels[i]] == 0){
+                    memset(H + labels[i] * p, 0, p * sizeof(double));
+                }
+                cblas_daxpy(p, 1.0, X + i * p, 1, H + labels[i] * p, 1);
+                ++cluster_num[labels[i]];
+            }
+            for (int i = 0; i < K; ++i){
+                if (cluster_num[i] != 0){
+                    cblas_dscal(p, 1.0 / cluster_num[i], H + i * p, 1);
+                } else {
+                    printf("cluster %d is empty!\n", i);
+                }
+            }
+            break;
+        case KMEANS_USER:
+            /* user supplied initial centroid, do nothing */
+            break;
+    }
+
 
     /* main loop */
     for (int iter = 0; iter < opts.maxit; ++iter){
@@ -125,9 +166,13 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
 
 
         /* check stopping rule */
-        if (!check_diff(n, old_labels, labels)){
+	int moved = check_diff(n, old_labels, labels);
+        if (!moved){
             break;
         }
+	if (opts.verbose){
+	    printf("iter %d: moved %d\n", iter, moved);
+	}
     }
 
     free(cluster_num);
@@ -141,7 +186,7 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
 int check_diff(int n, int *labels1, int *labels2){
     for (int i = 0; i < n; ++i){
         if (labels1[i] != labels2[i]){
-            return 1;
+	    return 1;
         }
     }
     return 0;

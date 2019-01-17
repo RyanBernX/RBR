@@ -1,6 +1,8 @@
 output/
 *.o
+*.a
 *.mexa64
 ex0[0-9]
 src/contrib_test
-
+combo/
+data/
