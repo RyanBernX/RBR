@@ -1,19 +1,42 @@
+/*
+ * RBR
+ *
+ * Copyright (C) 2019  Haoyang Liu (liuhaoyang@pku.edu.cn)
+ *                     Zaiwen Wen  (wenzw@pku.edu.cn)
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <omp.h>
 
+#ifdef HAVE_MKL
 #include "mkl.h"
+#else
+#include _CBLAS_HEADER
+#endif
 #include "DCRBR.h"
 
 
 DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
-    /* k is the number of communities;   This part is Correct */
+    /* k is the number of communities */
     int nnode, nnzero, maxIter, roundIter, p;
     double lambda;
     double *U, *d;
-    int *index, *labels, *ir, *jc, *iU;
+    int *index, *labels, *ir, *jc, *iU = NULL;
     DCRBR_out out;
 
     /* Import local variables */
@@ -24,7 +47,14 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
         fprintf(stderr, "Input summary:\n");
         fprintf(stderr, "Nodes: %d    Edges: %d\n", A->n, A->nnz / 2);
         fprintf(stderr, "maxIter: %d    p: %d\n", param.maxIter, param.p);
-        fprintf(stderr, "extraction method: %d\n", (int)param.extract);
+        if (param.extract == RBR_ROUNDING){
+            fprintf(stderr, "extraction method: rounding\n");
+        } else if (param.extract == RBR_KMEANS){
+            fprintf(stderr, "extraction method: kmeans\n");
+        } else {
+            fprintf(stderr, "extraction method: none\n");
+        }
+        fprintf(stderr, "Use full storage of U: %s\n", param.full == 1 ? "yes" : "no");
     }
     labels = (int*)malloc(nnode * sizeof(int));
 
@@ -35,10 +65,21 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
     out.elapsed = omp_get_wtime();
 
     /* Initialize U 
-       Note: U is sparse row major, each row with p elements
-       iU indicates which column each element belongs to*/
-    U = (double*)calloc(nnode * p, sizeof(double));
-    iU = (int*)malloc(nnode * p * sizeof(int));
+     *
+     * full = 0
+     * U is sparse row major, each row with p elements
+     * iU indicates which column each element belongs to
+     *
+     * full = 1
+     * U is dense row major, each row with k elements */
+
+    if (param.full){
+        U = (double*)calloc(nnode * k, sizeof(double));
+    } else {
+        U = (double*)calloc(nnode * p, sizeof(double));
+        iU = (int*)malloc(nnode * p * sizeof(int));
+    }
+
     index = (int*)malloc(nnode * sizeof(int));
     param.shuffle ? shuffling(nnode, index) : shuffling_false(nnode, index);
 
@@ -46,11 +87,18 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
     double UTB[k];
     memset(UTB, 0, k * sizeof(double));
     for (int i = 0; i < nnode; ++i){
-        U[i * p] = 1.0;
-        iU[i * p] = index[i] % k;
-        if(p > 1) iU[i * p + 1] = -1;
-        UTB[iU[i * p]] += d[i];
+        if (param.full){
+            int init_class = index[i] % k;
+            U[i + nnode * init_class] = 1;
+            UTB[init_class] += d[i];
+        } else {
+            U[i * p] = 1.0;
+            iU[i * p] = index[i] % k;
+            if(p > 1) iU[i * p + 1] = -1;
+            UTB[iU[i * p]] += d[i];
+        }
     }
+
 
     /* TODO: obj = sum(sum(full((A*U)).*U))-lambda*UTB'*UTB; */
 
@@ -72,71 +120,128 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
                 int ixmid[k];
 
                 memset(b, 0, k * sizeof(double));
-                /* Sparse - Sparse product: b = -U'*A(:,idxj)
-                 * Note: A is symmetric ! csr <=> csc */
-                for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
-                    /* consider row #jc[jj] in U */
-                    double *rU = U + jc[jj] * p;
-                    int *irU = iU + jc[jj] * p;
-                    for (int ii = 0; ii < p; ++ii){
-                        if (irU[ii] == -1) break;
-                        b[irU[ii]] -= rU[ii];
+
+                if (param.full){
+                    /* Sparse m-by-v product: b = -U'*A(:,idxj)
+                     * Note: A is symmetric ! csr <=> csc */
+                    for (int ii = 0; ii < k; ++ii){
+                        for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                            b[ii] -= U[jc[jj] + ii * nnode];
+                        }
                     }
+
+                    /* b += (UTB-U(idx(j),:)'*d(idx(j)))*lambda*d(idx(j)) */
+                    cblas_dcopy(k, UTB, 1, midb1, 1);
+                    cblas_daxpy(k, -d[rid], U + rid, nnode, midb1, 1);
+                    cblas_daxpy(k, lambda * d[rid], midb1, 1, b, 1);
+
+                    /* b is derived, now we solve the subproblem:
+                     * minimize b'x, s.t x'x=1, x>=0. */
+
+                    /* [minVal, minPos] = min(b); */
+                    double minVal = b[0];  int minPos = 0;    
+                    for (int ii = 1; ii < k; ++ii) {
+                        if (b[ii] < minVal){
+                            minVal = b[ii];
+                            minPos = ii;
+                        }
+                    }
+
+                    if (minVal < 0){
+                        for (int iii = 0; iii < k; iii++)   {
+                            if (b[iii] < 0) xmid[iii] = -b[iii];
+                            else xmid[iii] = 0;
+                        }
+                        double norm = 1.0 / cblas_dnrm2(k, xmid, 1);
+                        cblas_dscal(k, norm, xmid, 1);
+                    }
+
+                    else{
+                        memset(xmid, 0, k * sizeof(double));
+                        xmid[minPos] = 1;
+                    }
+
+                    /* Update UTB and U ; */
+                    cblas_daxpy(k, d[rid], xmid, 1, UTB, 1);  /* UTB = UTB + (xmid - U(idx(j), :)')*d(idx(j)); */
+                    cblas_daxpy(k, -d[rid], U + rid, nnode, UTB, 1); 
+
+                    cblas_dcopy(k, xmid, 1, U + rid, nnode);  /* U(idx(j), :) = xmid; */
+
+                } else { /* param.full = 0 */
+
+                    /* Sparse - Sparse product: b = -U'*A(:,idxj)
+                     * Note: A is symmetric ! csr <=> csc */
+                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                        /* consider row #jc[jj] in U */
+                        double *rU = U + jc[jj] * p;
+                        int *irU = iU + jc[jj] * p;
+                        for (int ii = 0; ii < p; ++ii){
+                            if (irU[ii] == -1) break;
+                            b[irU[ii]] -= rU[ii];
+                        }
+                    }
+
+                    /* b += (UTB-U(idx(j),:)'*d(idx(j)))*lambda*d(idx(j)) */
+                    cblas_dcopy(k, UTB, 1, midb1, 1);
+                    for (int i = 0; i < p; ++i){
+                        double *rU = U + rid * p;
+                        int *irU = iU + rid * p;
+                        if (irU[i] == -1) break;
+                        midb1[irU[i]] -= d[rid] * rU[i];
+                    }
+                    cblas_daxpy(k, lambda * d[rid], midb1, 1, b, 1);
+
+                    /* b is derived, now we solve the subproblem
+                       minimize b'x
+                       s.t x'x=1, x>=0, |x|_0<=p*/
+                    int iPos;
+                    cblas_dcopy(k, b, 1, xmid, 1);
+                    solve_sub_U(k, p, xmid, ixmid, &iPos);
+
+                    if (iPos > 0){
+                        double norm = 1.0 / cblas_dnrm2(iPos, xmid, 1);
+                        cblas_dscal(iPos, -norm, xmid, 1);
+                    }
+
+                    /* UTB = UTB + (xmid - U(idx(j), :)')*d(idx(j)); */
+                    for (int i = 0; i < iPos; ++i)
+                        UTB[ixmid[i]] += d[rid] * xmid[i];
+                    for (int i = 0; i < p; ++i){
+                        double *rU = U + rid * p;
+                        int *irU = iU + rid * p;
+                        if (irU[i] == -1) break;
+                        UTB[irU[i]] -= d[rid] * rU[i];
+                    }
+
+                    /* U(idx(j), :) = xmid; */
+                    cblas_dcopy(iPos, xmid, 1, U + rid * p, 1);
+                    memcpy(iU + rid * p, ixmid, iPos * sizeof(int));
+                    if (iPos < p) iU[rid * p + iPos] = -1;
                 }
-
-                /* b += (UTB-U(idx(j),:)'*d(idx(j)))*lambda*d(idx(j)) */
-                cblas_dcopy(k, UTB, 1, midb1, 1);
-                for (int i = 0; i < p; ++i){
-                    double *rU = U + rid * p;
-                    int *irU = iU + rid * p;
-                    if (irU[i] == -1) break;
-                    midb1[irU[i]] -= d[rid] * rU[i];
-                }
-                cblas_daxpy(k, lambda * d[rid], midb1, 1, b, 1);
-
-                /* b is derived, now we solve the subproblem
-                   minimize b'x
-                   s.t x'x=1, x>=0, |x|_0<=p*/
-                int iPos;
-                cblas_dcopy(k, b, 1, xmid, 1);
-                solve_sub_U(k, p, xmid, ixmid, &iPos);
-
-                if (iPos > 0){
-                    double norm = 1.0 / cblas_dnrm2(iPos, xmid, 1);
-                    cblas_dscal(iPos, -norm, xmid, 1);
-                }
-
-                /* UTB = UTB + (xmid - U(idx(j), :)')*d(idx(j)); */
-                for (int i = 0; i < iPos; ++i)
-                    UTB[ixmid[i]] += d[rid] * xmid[i];
-                for (int i = 0; i < p; ++i){
-                    double *rU = U + rid * p;
-                    int *irU = iU + rid * p;
-                    if (irU[i] == -1) break;
-                    UTB[irU[i]] -= d[rid] * rU[i];
-                }
-
-                /* U(idx(j), :) = xmid; */
-                cblas_dcopy(iPos, xmid, 1, U + rid * p, 1);
-                memcpy(iU + rid * p, ixmid, iPos * sizeof(int));
-                if (iPos < p) iU[rid * p + iPos] = -1;
 
             }
             /* TODO: If necessary, update the objective. */
 
             if (param.extract == RBR_ROUNDING && iter > roundIter){
-#pragma omp for nowait
                 /* Rounding Process */
-                for (int jj = 0; jj < nnode; ++jj){
-                    int rid = param.shuffle ? index[jj] : jj;
-                    int maxPos = imax_p(p, U + rid * p, iU + rid * p);
-                    labels[rid] = iU[rid * p + maxPos];
-                    U[rid * p] = 1.0;
-                    iU[rid * p] = iU[rid * p + maxPos];
-                    if (p > 1) iU[rid * p + 1] = -1;
+#pragma omp for nowait
+                for (int j = 0; j < nnode; ++j){
+                    if (param.full){
+                        int maxPos = imax(k, U + j, nnode);
+                        labels[j] = maxPos;
+                        for (int jj = 0; jj < k; ++jj) U[j + jj * nnode] = 0;
+                        U[j + nnode * maxPos] = 1;
+                    } else {
+                        int rid = param.shuffle ? index[j] : j;
+                        int maxPos = imax_p(p, U + rid * p, iU + rid * p);
+                        labels[rid] = iU[rid * p + maxPos];
+                        U[rid * p] = 1.0;
+                        iU[rid * p] = iU[rid * p + maxPos];
+                        if (p > 1) iU[rid * p + 1] = -1;
+                    }
                 }
-            }
 
+            }
 
         }
 
@@ -154,16 +259,28 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
     out.elapsed = omp_get_wtime() - out.elapsed;
     /* kmeans */
     if (param.extract == RBR_KMEANS){
+        double *full_U;
         /* perform one-step rounding to find the initial value */
+        if (param.full){
 #pragma omp for
-        /* Rounding Process */
-        for (int jj = 0; jj < nnode; ++jj){
-            int maxPos = imax_p(p, U + jj * p, iU + jj * p);
-            labels[jj] = iU[jj * p + maxPos];
+            for (int j = 0; j < nnode; ++j){
+                int maxPos = imax(k, U + j, nnode);
+                labels[j] = maxPos;
+            }
+
+            full_U = U;
+        } else {
+#pragma omp for
+            for (int jj = 0; jj < nnode; ++jj){
+                int maxPos = imax_p(p, U + jj * p, iU + jj * p);
+                labels[jj] = iU[jj * p + maxPos];
+            }
+
+            full_U = (double*)malloc(nnode * k * sizeof(double));
+            sparse_to_full(nnode, k, p, U, iU, full_U);
         }
+
         param.k_param.init = KMEANS_LABELS;
-        double *full_U = (double*)malloc(nnode * k * sizeof(double));
-        sparse_to_full(nnode, k, p, U, iU, full_U);
         double *H = (double*)malloc(k * k * sizeof(double));
         kmeans(nnode, k, full_U, k, labels, H, param.k_param);
         free(H); free(full_U);
@@ -247,7 +364,7 @@ int* generate_labels(int nnode, int k, const double *U){
 void DCRBR_out_destroy(DCRBR_out *out){
     free(out->labels);
     free(out->U);
-    free(out->iU);
+    if (out->iU != NULL) free(out->iU);
 }
 
 /** @fn double cal_obj_value()

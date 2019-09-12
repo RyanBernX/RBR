@@ -14,8 +14,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
         return;
     }
 
-    if (nrhs != 6){
-        mexErrMsgTxt("Usage: [labels, U] = rbr_mex(A, d, k, p, maxit, extract)\n");
+    if (nrhs != 7){
+        mexErrMsgTxt("Usage: [labels, U] = rbr_mex(A, d, k, p, maxit, extract, full)\n");
         return;
     }
 
@@ -44,6 +44,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
             param.extract = RBR_ROUNDING;
             break;
     }
+    param.full = (int)(*mxGetPr(prhs[6]));
 
     /* import A */
     int n, nnz;

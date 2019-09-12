@@ -3,6 +3,7 @@ output/
 *.a
 *.mexa64
 ex0[0-9]
+rbr
 src/contrib_test
 combo/
 data/

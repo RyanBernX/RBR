@@ -1,4 +1,24 @@
 /*
+ * RBR
+ *
+ * Copyright (C) 2019  Haoyang Liu (liuhaoyang@pku.edu.cn)
+ *                     Zaiwen Wen  (wenzw@pku.edu.cn)
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
+ */
+
+/*
  * ==========================================================================
  *
  *       Filename:  kmeans.c
@@ -18,61 +38,25 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <math.h>
+
+#ifdef HAVE_MKL
 #include "mkl.h"
+#else
+#include _CBLAS_HEADER
+#endif
 #include "DCRBR.h"
 
 void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         kmeans_param opts);
 int check_diff(int n, int *labels1, int *labels2);
-
-/*
-int main(int argc, char **argv){
-    if (argc != 4){
-        fprintf(stderr, "Usage: ./kmeans n p K\n");
-        return 1;
-    }
-    int n = strtol(argv[1], NULL, 10);
-    int p = strtol(argv[2], NULL, 10);
-    int K = strtol(argv[3], NULL, 10);
-
-    int *labels = (int*)malloc(n * sizeof(int));
-    double *X, *H;
-    kmeans_param opts;
-
-    X = (double*)malloc(n * p * sizeof(double));
-    H = (double*)malloc(K * p * sizeof(double));
-
-    FILE *fp;
-    fp = fopen("X.dat", "r");
-    for (int i = 0; i < n * p; ++i){
-        fscanf(fp, "%le", X + i);
-    }
-    fclose(fp);
-
-    opts.maxit = 100;
-    opts.init = KMEANS_SAMPLE;
-    opts.verbose = 1;
-    srand((unsigned)time(NULL));
-    kmeans(n, p, X, K, labels, H, opts);
-
-    for (int i = 0; i < K; ++i){
-        for (int j = 0; j < p; ++j){
-            printf("%e  ", H[i * p + j]);
-        }
-        printf("\n");
-    }
-
-    free(X);
-    free(H);
-    free(labels);
-    return 0;
-}*/
+int my_idamin(int n, const double *x);
 
 void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         kmeans_param opts){
-    MKL_INT seed[] = {23, (unsigned)time(NULL) % 4096, 23, 1};
+    /* MKL_INT seed[] = {23, (unsigned)time(NULL) % 4096, 23, 1};
     double *mu, *ones;
+     **/
     
     /* memory allocation */
     int *cluster_num = (int*)malloc(K * sizeof(int));
@@ -83,6 +67,7 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
 
     /* initialization */
     switch (opts.init){
+        /* 
         case KMEANS_CENTER:
             mu = (double*)calloc(p, sizeof(double));
             ones = (double*)malloc(n * sizeof(double));
@@ -96,6 +81,7 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
             }
             free(mu); free(ones);
             break;
+            */
         case KMEANS_SAMPLE:
             for (int i = 0; i < K; ++i){
                 memcpy(H + i * p, X + (rand() % n) * p, p * sizeof(double));
@@ -121,6 +107,8 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         case KMEANS_USER:
             /* user supplied initial centroid, do nothing */
             break;
+        default:
+            break;
     }
 
 
@@ -144,7 +132,8 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
         }
 
         for (int i = 0; i < n; ++i){
-            labels[i] = cblas_idamin(K, XH + i * K, 1);
+            //labels[i] = cblas_idamin(K, XH + i * K, 1);
+            labels[i] = my_idamin(K, XH + i * K);
         }
 
         /* compute centroids */
@@ -192,3 +181,13 @@ int check_diff(int n, int *labels1, int *labels2){
     return 0;
 }
 
+int my_idamin(int n, const double *x){
+    int ipos = 0, v = x[0];
+    for (int i = 1; i < n; ++i){
+        if (fabs(x[i]) < v){
+            v = fabs(x[i]);
+            ipos = i;
+        }
+    }
+    return ipos;
+}

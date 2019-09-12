@@ -1,54 +1,62 @@
-CC=gcc
-CXX=g++
-MEX=/opt/MATLAB/R2018b/bin/mex
-CDEBUG=-Wall
-COPTFLAG=-O3
-LIBS=-L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lgomp -lpthread -lgfortran -lm -ldl
-LIBS_STATIC= -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_gnu_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -lgomp -lpthread -lm -ldl
-CFLAG = -m64 -std=c99 -I${MKLROOT}/include -I../include -fopenmp -fPIC
-CXXFLAG = -std=c++11 -I../include -fPIC
+#--------------------------------------------------------------------------
+# CONFIGURATION AREA
+#--------------------------------------------------------------------------
 
-OBJS=rbr.o kmeans.o metric.o spmat.o utils.o contrib/solve_sub_U.o
-CONTRIB_OBJS=contrib/kb07ad.o contrib/dsort.o
+# name of your C compiler
+CC  = gcc
 
-.PHONY: clean exec contrib
+# name of your C++ compiler
+CXX = g++
 
-all: exec
+# name of your mex compiler (only needed if you want to compile MATLAB interface) 
+MEX = mex
 
-exec: ex01 ex02 ex03 ex04
+# MKL
+MKL = on
+MKLROOT ?= 
+
+# CBLAS
+CBLAS_HEADER = cblas.h
+CBLAS_LIBS = -lblas
+
+#--------------------------------------------------------------------------
+# END OF CONFIGURATION AREA
+#--------------------------------------------------------------------------
+
+ifeq (${MKL},on)
+    LIBS=-Wl,-rpath,${MKLROOT}/lib/intel64 -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lgomp -lpthread -lm -ldl
+    LIBS_STATIC= -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_gnu_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -lgomp -lpthread -lm -ldl
+    CFLAGS = -Wall -O3 -m64 -std=c99 -DHAVE_MKL -I${MKLROOT}/include -I../include -fopenmp -fPIC
+    CXXFLAGS = -Wall -O3 -std=c++11 -DHAVE_MKL -I../include -fPIC
+else
+    LIBS=${CBLAS_LIBS} -lgomp -lm -ldl
+    LIBS_STATIC=${LIBS}
+    CFLAGS = -Wall -O3 -m64 -std=c99 -D_CBLAS_HEADER=\"${CBLAS_HEADER}\" -I../include -fopenmp -fPIC
+    CXXFLAGS = -Wall -O3 -std=c++11 -D_CBLAS_HEADER=\"${CBLAS_HEADER}\" -I../include -fPIC
+endif
+
+OBJS=rbr.o kmeans.o metric.o spmat.o utils.o solve_sub_U.o
+
+.PHONY: clean exec 
+
+all: lib exec
 
 lib: $(OBJS)
 	ar -rcs libDCRBR.a $^
 
 mex: mex_rbr.c lib
-	$(MEX) CFLAGS='-std=c99 -I../include' CLIBS='-L. -lDCRBR ${LIBS_STATIC}' -O -largeArrayDims $<
+	$(MEX) -outdir matlab CFLAGS='-std=c99 -I../include' CLIBS='-L. -lDCRBR ${LIBS_STATIC}' -O -largeArrayDims $<
 
 
-ex01: test_synth.o $(OBJS)
-	$(CC) -o ex01 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
+exec: main.o $(OBJS)
+	$(CC) -o rbr $^ $(CFLAGS) $(LIBS)
 
-ex02: test_small_real.o $(OBJS)
-	$(CC) -o ex02 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
-
-ex03: test_large_real.o $(OBJS)
-	$(CC) -o ex03 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
-
-ex04: test_large_real_p.o $(OBJS)
-	$(CC) -o ex04 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
-
-ex05: test_large_real_k.o DCRBR_kmeans.o utils.o kmeans.o spmat.o contrib/solve_sub_U.o
-	$(CC) -o ex05 $^ $(CDEBUG) $(COPTFLAG) $(LIBS) $(CFLAG)
-
-kmeans: kmeans.c
-	$(CC) -o $@ $^ -g $(LIBS) $(CFLAG)
-
-contrib/solve_sub_U.o: contrib/solve_sub_U.cpp
-	$(CXX) -c -o $@ $< $(CDEBUG) $(COPTFLAG) $(CXXFLAG)
+solve_sub_U.o: solve_sub_U.cpp
+	$(CXX) -c -o $@ $< $(CXXFLAGS)
 
 %.o: %.c
-	$(CC) -c $< $(CDEBUG) $(COPTFLAG) $(CFLAG)
+	$(CC) -c $< $(CFLAGS)
 
 clean: 
-	rm -f *.o *.a ex01 ex02 ex03 ex04 contrib/solve_sub_U.o
+	rm -f *.o *.a rbr matlab/mex_rbr.mexa64
 
-	

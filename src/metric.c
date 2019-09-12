@@ -1,8 +1,33 @@
+/*
+ * RBR
+ *
+ * Copyright (C) 2019  Haoyang Liu (liuhaoyang@pku.edu.cn)
+ *                     Zaiwen Wen  (wenzw@pku.edu.cn)
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+
+#ifdef HAVE_MKL
 #include "mkl.h"
+#else
+#include _CBLAS_HEADER
+#endif
 #include "DCRBR.h"
 
 void cal_confusion_matrix(int n, int k, const int *labels, const int *info, int *mat){
@@ -45,7 +70,7 @@ double cal_Fsame(int n, int k, const int *labels, const int *info){
 }
 
 double cal_NMI(int n, int k, const int *labels, const int *info){
-    int Nt, *Ni, *Nj, *C;
+    int Nt = 0, *Ni, *Nj, *C;
 
     Ni = (int*)calloc(k, sizeof(int));
     Nj = (int*)calloc(k, sizeof(int));
