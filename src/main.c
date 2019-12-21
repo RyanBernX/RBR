@@ -39,6 +39,7 @@ int main(int argc, char **argv){
     int k, comm_n;
     double tt = 0, obj_best = 0;
     char label_filename[BUFF_SIZE] = {0};
+    int prob = 0, weighted = 0;
 
     /* parsing command line */
     struct option long_opts[] = {
@@ -46,6 +47,8 @@ int main(int argc, char **argv){
         {"round-offset", 1, 0, 1},
         {"shuffle", 1, 0, 2},
         {"full", 0, 0, 3},
+        {"prob", 1, 0, 4},
+        {"weighted", 0, 0, 5},
         {"verbose", 0, 0, 'v'},
         {"help", 0, 0, 'h'},
         {"extract", 1, 0, 'e'},
@@ -66,6 +69,20 @@ int main(int argc, char **argv){
                 break;
             case 3:
                 param.full = 1;
+                break;
+            case 4:
+                if (strcmp(optarg, "community") == 0){
+                    prob = 0;
+                } else if (strcmp(optarg, "maxcut") == 0){
+                    prob = 1;
+                } else {
+                    fprintf(stderr, "Unrecognized problem: %s\n", optarg);
+                    fprintf(stderr, "Valid value: community, maxcut.\n");
+                    return 1;
+                }
+                break;
+            case 5:
+                weighted = 1;
                 break;
             case 'v':
                 param.verbose = 1;
@@ -97,7 +114,7 @@ int main(int argc, char **argv){
         return 1;
     }
 
-    if (read_adj_matrix_csr(argv[optind], &A, 0))
+    if (read_adj_matrix_csr(argv[optind], &A, 0, weighted))
         return 1;
 
 
@@ -108,20 +125,31 @@ int main(int argc, char **argv){
         param.p = strtol(argv[optind+2], NULL, 10);
 
     srand((unsigned)time(NULL));
-    for (int i = 0; i < 1; ++i){
-        out = rbr(&A, k, param);
-        if (i == 0 || out.Q > obj_best){
-            comm_n = cal_comm_num(A.n, k, out.labels);
-            if (label_filename[0] != '\0'){
-                write_labels(label_filename, A.n, out.labels);
-            }
-            obj_best = out.Q;
-        }
-        tt += out.elapsed;
-        DCRBR_out_destroy(&out);
-    }
 
-    printf("nC: %d    Time: %f    CC: %f    S: %f    Q: %f\n", comm_n, tt, out.CC, out.S, obj_best);
+    switch(prob){
+        case 0: /* community */
+            for (int i = 0; i < 1; ++i){
+                out = rbr(&A, k, param);
+                if (i == 0 || out.Q > obj_best){
+                    comm_n = cal_comm_num(A.n, k, out.labels);
+                    if (label_filename[0] != '\0'){
+                        write_labels(label_filename, A.n, out.labels);
+                    }
+                    obj_best = out.Q;
+                }
+                tt += out.elapsed;
+                DCRBR_out_destroy(&out);
+            }
+            printf("nC: %d    Time: %f    CC: %f    S: %f    Q: %f\n", comm_n, tt, out.CC, out.S, obj_best);
+            break;
+        case 1: /* maxcut */
+            out = rbr_maxcut(&A, k, param);
+            printf("n = %d, cut = %e, time = %f\n", A.n, out.funct_V, out.elapsed);
+            DCRBR_out_destroy(&out);
+            break;
+        default:
+            break;
+    }
 
     adj_matrix_destroy(&A);
     return 0;

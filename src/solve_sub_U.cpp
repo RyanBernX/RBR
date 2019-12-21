@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <numeric>
 #include <string.h>
+#include <math.h>
+#include <stdio.h>
 #include "DCRBR.h"
 
 extern "C" {
@@ -59,6 +61,23 @@ void solve_sub_U(int n, int p, double *a, int *ia, int *iPos) {
   free(a_tmp); free(ia_tmp);
 
   *iPos = num;
+}
+
+void solve_sub_maxcut(int n, int p, double *a, int *ia){
+  //for (int i = 0; i < n; ++i) index[i] = i;
+  std::iota(ia, ia + n, 0);
+
+  /* find the position of nth_element */  
+  std::nth_element(ia, ia + p - 1, ia + n, [&a](int i1, int i2) { return fabs(*(a + i1)) > fabs(*(a + i2)); } );
+  
+  /* rearrange */
+  double *a_tmp = (double*)malloc(p * sizeof(double));
+  for (int i = 0; i < p; ++i){
+      a_tmp[i] = a[ia[i]];
+  }
+  memcpy(a, a_tmp, p * sizeof(double));
+  free (a_tmp);
+
 }
 
 }

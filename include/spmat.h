@@ -24,6 +24,7 @@
 typedef struct{
     int *indx;
     int *pntr;
+    double *val;
     double *d;
     int nnz;
     int n;
@@ -36,7 +37,7 @@ extern "C" {
 #endif
 
 
-int read_adj_matrix_csr(const char *, adj_matrix *, int);
+int read_adj_matrix_csr(const char *, adj_matrix *, int, int);
 void adj_matrix_destroy(adj_matrix *);
 
 #ifdef __cplusplus

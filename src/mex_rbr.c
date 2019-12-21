@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <omp.h>
 #include "mex.h"
 #include "DCRBR.h"
@@ -14,8 +15,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
         return;
     }
 
-    if (nrhs != 7){
-        mexErrMsgTxt("Usage: [labels, U] = rbr_mex(A, d, k, p, maxit, extract, full)\n");
+    if (nrhs != 8){
+        mexErrMsgTxt("Usage: [labels, U] = rbr_mex(A, d, k, p, maxit, extract, full, prob)\n");
         return;
     }
 
@@ -24,6 +25,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
 
     ir = mxGetIr(prhs[0]);
     jc = mxGetJc(prhs[0]);
+    pr = mxGetPr(prhs[0]);
     A.d = mxGetPr(prhs[1]);
 
     int k = (int)(*mxGetPr(prhs[2]));
@@ -45,6 +47,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
             break;
     }
     param.full = (int)(*mxGetPr(prhs[6]));
+    int prob = (int)(*mxGetPr(prhs[7]));
 
     /* import A */
     int n, nnz;
@@ -54,11 +57,18 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
     A.n = n; A.nnz = nnz;
     A.pntr = (int*)malloc((n + 1) * sizeof(int));
     A.indx = (int*)malloc(nnz * sizeof(int));
+    A.val = NULL;
 
     for (int i = 0; i <= n; ++i) A.pntr[i] = jc[i];
     for (int i = 0; i < nnz; ++i) A.indx[i] = ir[i];
 
-    out = rbr(&A, k, param);
+    if (prob == 0){ /* community */
+        out = rbr(&A, k, param);
+    } else if (prob == 1){ /* maxcut */
+        A.val = pr;
+        out = rbr_maxcut(&A, k, param);
+    }
+
 
     /* extract output */
     plhs[0] = mxCreateDoubleMatrix(n, 1, mxREAL);
@@ -68,7 +78,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
     if (nlhs == 2){
         plhs[1] = mxCreateDoubleMatrix(n, k, mxREAL);
         pr = mxGetPr(plhs[1]);
-        sparse_to_full_c(n, k, param.p, out.U, out.iU, pr);
+        if (param.full == 0){
+            sparse_to_full_c(n, k, param.p, out.U, out.iU, pr);
+        } else {
+            memcpy(pr, out.U, n * k * sizeof(double));
+        }
     }
 
     DCRBR_out_destroy(&out);

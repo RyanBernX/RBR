@@ -74,6 +74,7 @@ void dsort(int n, double *data, int *index);
 
 /* c++ plug in (nth_element) */
 void solve_sub_U(int n, int p, double *xmid, int *ixmid, int *iPos);
+void solve_sub_maxcut(int n, int p, double *xmid, int *ixmid);
 
 void shuffling(int n, int *card);
 void shuffling_false(int n, int *card);
@@ -84,9 +85,11 @@ DCRBR_out DCRBR_kmeans(adj_matrix *A, int k, DCRBR_param param);
 DCRBR_out DCRBR_rounding_p(adj_matrix *A, int k, DCRBR_param param);
 DCRBR_out DCRBR_kmeans_p(adj_matrix *A, int k, DCRBR_param param);
 DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param);
+DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param);
 void DCRBR_out_destroy(DCRBR_out *out);
 int *generate_labels(int n, int k, const double *U);
 double cal_obj_value(adj_matrix *A, int n, int k, const double *U, double lambda, const double *UTB);
+double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U);
 
 /* metric.c */
 int cal_mis(int, int, const int*, const int*);

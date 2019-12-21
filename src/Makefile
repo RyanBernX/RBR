@@ -9,7 +9,7 @@ CC  = gcc
 CXX = g++
 
 # name of your mex compiler (only needed if you want to compile MATLAB interface) 
-MEX = mex
+MEX = /opt/MATLAB/R2019b/bin/mex
 
 # MKL
 MKL = on

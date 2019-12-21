@@ -29,15 +29,17 @@
  *  @param filename The matrix filename.
  *  @param A Pointer to the sparse matrix object.
  *  @param one_based set 1 to generate a one-based matrix.
+ *  @param weighted set 1 to indicate that this is a weighted adjacency matrix
  *  @return (int) The function returns 0 if it ends with no errors. Otherwise,
  *  either it fails to open the file or the file is illegal.
  */
 
-int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based){
+int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int weighted){
     FILE *fp = fopen(filename, "r");
     int nnz, row, col;
     char headerl1[82], headerl2[82], headerl3[82], headerl4[82], which[4];
     int *pntr, *indx;
+    double *val;
 
     if (fp == NULL){
         fprintf(stderr, "Cannot open file %s. \n", filename);
@@ -77,7 +79,7 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based){
             }
             pntr[i] -= one_based;
             /* update degree one by one */
-            if (i > 0) A->d[i-1] = pntr[i] - pntr[i-1];
+            if (i > 0 && weighted == 0) A->d[i-1] = pntr[i] - pntr[i-1];
             
         }
         /* input INDX */
@@ -85,6 +87,26 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based){
             fscanf(fp, "%d", indx + i);
             indx[i] -= one_based;
         }
+        /* input VAL for weighted graph and A->d */
+        if (weighted){
+            A->val = (double*)malloc(nnz * sizeof(double));
+            val = A->val;
+            for (int i = 0; i < nnz; ++i){
+                fscanf(fp, "%lg", val + i);
+            }
+            
+            /* compute A->d = A * ones */
+            for (int i = 0; i < col; i++){
+                A->d[i] = 0;
+                for (int j = pntr[i]; j < pntr[i+1]; ++j){
+                    A->d[i] += val[j];
+                }
+            }
+        }
+        else {
+            A->val = NULL;
+        }
+
     }
     else{
         fprintf(stderr, "Format error. Rutherford Boeing CSR format matrix needed.\n");
@@ -99,4 +121,5 @@ void adj_matrix_destroy(adj_matrix *A){
     free(A->pntr);
     free(A->indx);
     free(A->d);
+    if (A->val != NULL) free(A->val);
 }

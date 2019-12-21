@@ -361,6 +361,171 @@ int* generate_labels(int nnode, int k, const double *U){
     return ret;
 }
 
+DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
+    int nnode, nnzero, maxIter, roundIter, p;
+    double *U, *d, *val;
+    int *index, *labels, *ir, *jc, *iU = NULL;
+    DCRBR_out out;
+
+    /* Import local variables */
+    nnzero = A->nnz; nnode = A->n; d = A->d;
+    ir = A->pntr; jc = A->indx; val = A->val;
+    maxIter = param.maxIter; roundIter = param.roundIter, p = param.p;
+    if (param.verbose){
+        fprintf(stderr, "Input summary:\n");
+        fprintf(stderr, "Nodes: %d    Edges: %d\n", A->n, A->nnz / 2);
+        fprintf(stderr, "maxIter: %d    p: %d\n", param.maxIter, param.p);
+        if (param.extract == RBR_ROUNDING){
+            fprintf(stderr, "extraction method: rounding\n");
+        } else if (param.extract == RBR_KMEANS){
+            fprintf(stderr, "extraction method: kmeans\n");
+        } else {
+            fprintf(stderr, "extraction method: none\n");
+        }
+        fprintf(stderr, "Use full storage of U: %s\n", param.full == 1 ? "yes" : "no");
+        fprintf(stderr, "Shuffle: %s\n", param.shuffle == 1 ? "yes" : "no");
+    }
+    labels = (int*)malloc(nnode * sizeof(int));
+
+    /* timing */
+    out.elapsed = omp_get_wtime();
+
+    /* Initialize U 
+     *
+     * full = 0
+     * U is sparse row major, each row with p elements
+     * iU indicates which column each element belongs to
+     *
+     * full = 1
+     * U is dense row major, each row with k elements */
+
+    if (param.full){
+        U = (double*)calloc(nnode * k, sizeof(double));
+    } else {
+        U = (double*)calloc(nnode * p, sizeof(double));
+        iU = (int*)malloc(nnode * p * sizeof(int));
+    }
+
+    index = (int*)malloc(nnode * sizeof(int));
+    param.shuffle ? shuffling(nnode, index) : shuffling_false(nnode, index);
+
+    /* Initialize U */
+    for (int i = 0; i < nnode; ++i){
+        if (param.full){
+            int init_class = index[i] % k;
+            U[i + nnode * init_class] = 1;
+        } else {
+            U[i * p] = 1.0;
+            iU[i * p] = index[i] % k;
+            if(p > 1) iU[i * p + 1] = -1;
+        }
+    }
+
+
+    /* randomly choose idx to avoid false sharing. */
+
+    for (int iter = 0; iter < maxIter; ++iter){
+        if (param.verbose)
+            fprintf(stderr, "Iter: %d\n", iter);
+
+        if (param.shuffle) shuffling(nnode, index);
+#pragma omp parallel
+        {
+#pragma omp for nowait
+            /* j is the # of row that is being optimized. */
+            for (int j = 0; j < nnode; ++j){
+                int rid = param.shuffle ? index[j] : j;
+
+                double b[k], xmid[k];
+                int ixmid[k];
+
+                memset(b, 0, k * sizeof(double));
+
+                if (param.full){
+                    /* Sparse m-by-v product: b = -U'*A(:,idxj)
+                     * Note: A is symmetric ! csr <=> csc */
+                    for (int ii = 0; ii < k; ++ii){
+                        for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                            int col = jc[jj];
+                            if (val == NULL){
+                                b[ii] -= U[col + ii * nnode];
+                            } else {
+                                b[ii] -= val[jj] * U[col + ii * nnode];
+                            }
+                        }
+                    }
+
+                    /* b is derived, now we solve the subproblem:
+                     * minimize b'x, s.t x'x=1. */
+                    double nrm = cblas_dnrm2(k, b, 1);
+                    if (fabs(nrm > 1e-14)){
+                        cblas_dscal(k, 1.0 / nrm, b, 1);
+                        cblas_dcopy(k, b, 1, U + rid, nnode);
+                    }
+
+
+                } else { /* param.full = 0 */
+
+                    /* Sparse - Sparse product: b = -U'*A(:,idxj)
+                     * Note: A is symmetric ! csr <=> csc */
+                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                        /* consider row #jc[jj] in U */
+                        double *rU = U + jc[jj] * p;
+                        int *irU = iU + jc[jj] * p;
+                        for (int ii = 0; ii < p; ++ii){
+                            if (irU[ii] == -1) break;
+                            if (val == NULL){
+                                b[irU[ii]] -= rU[ii];
+                            } else {
+                                b[irU[ii]] -= val[jj] * rU[ii];
+                            }
+                        }
+                    }
+
+                    /* solve the subproblem */
+                    cblas_dcopy(k, b, 1, xmid, 1);
+                    solve_sub_maxcut(k, p, xmid, ixmid);
+                    double nrm = cblas_dnrm2(p, xmid, 1);
+                    if (fabs(nrm > 1e-14)){
+                        cblas_dscal(p, 1.0 / nrm, xmid, 1);
+                        cblas_dcopy(p, xmid, 1, U + rid * p, 1);
+                        memcpy(iU + rid * p, ixmid, p * sizeof(int));
+                    }
+                }
+
+            }
+            /* TODO: If necessary, update the objective. */
+
+        }
+
+    }
+    out.elapsed = omp_get_wtime() - out.elapsed;
+
+
+    //for (int i = 0; i < nnode; ++i) labels[i] = iU[i * p];
+    out.labels = labels;
+    out.U = U; out.iU = iU;
+    if (param.full){
+        out.funct_V = cal_maxcut_value(A, nnode, k, U);
+    } else {
+        double *U_tmp = (double*)malloc(nnode * k * sizeof(double));
+        sparse_to_full_c(nnode, k, p, U, iU, U_tmp);
+        out.funct_V = cal_maxcut_value(A, nnode, k, U_tmp);
+        free (U_tmp);
+    }
+
+
+    if (param.verbose){
+        fprintf(stderr, "Cut value: %e.\n", out.funct_V);
+        fprintf(stderr, "Elapsed: %f sec.\n", out.elapsed);
+    }
+
+    free(index);
+    return out;
+
+}
+
+
 void DCRBR_out_destroy(DCRBR_out *out){
     free(out->labels);
     free(out->U);
@@ -391,3 +556,32 @@ double cal_obj_value(adj_matrix *A, int n, int k, const double *U, double lambda
 
     return obj;
 }
+
+double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U){
+    double *AU, *val, cut;
+    int *ir, *jc;
+    AU = (double*)calloc(n * k, sizeof(double));
+
+    ir = A->pntr; jc = A->indx; val = A->val;
+
+    /* compute A * U */
+    for (int j = 0; j < k; ++j){
+        for (int r = 0; r < n; ++r){
+            for (int i = ir[r]; i < ir[r + 1]; ++i){
+                if (val == NULL){
+                    AU[j * n + r] += U[jc[i] + j * n];
+                } else {
+                    AU[j * n + r] += val[i] * U[jc[i] + j * n];
+                }
+            }
+        }
+    }
+
+    /* compute cut value */
+    double one = 1;
+    cut = cblas_ddot(n, A->d, 1, &one, 0);
+    cut -= cblas_ddot(n * k, AU, 1, U, 1);
+
+    return cut / 4;
+}
+
