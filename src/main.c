@@ -49,14 +49,17 @@ int main(int argc, char **argv){
         {"full", 0, 0, 3},
         {"prob", 1, 0, 4},
         {"weighted", 0, 0, 5},
+        {"funct-chk-freq", 1, 0, 6},
+        {"tol", 1, 0, 't'},
         {"verbose", 0, 0, 'v'},
         {"help", 0, 0, 'h'},
         {"extract", 1, 0, 'e'},
         {"output", 1, 0, 'o'}
     };
     param.maxIter = 25; param.verbose = 0; param.shuffle = 0; param.full = 0;
+    param.funct_chk_freq = 10; param.tol = 4e-3;
     param.extract = RBR_ROUNDING;
-    while ((c = getopt_long(argc, argv, "vhe:o:", long_opts, NULL)) != -1){
+    while ((c = getopt_long(argc, argv, "t:vhe:o:", long_opts, NULL)) != -1){
         switch (c){
             case 0:
                 param.maxIter = atoi(optarg);
@@ -83,6 +86,12 @@ int main(int argc, char **argv){
                 break;
             case 5:
                 weighted = 1;
+                break;
+            case 6:
+                param.funct_chk_freq = atoi(optarg);
+                break;
+            case 't':
+                param.tol = atof(optarg);
                 break;
             case 'v':
                 param.verbose = 1;
@@ -144,7 +153,7 @@ int main(int argc, char **argv){
             break;
         case 1: /* maxcut */
             out = rbr_maxcut(&A, k, param);
-            printf("n = %d, cut = %e, time = %f\n", A.n, out.funct_V, out.elapsed);
+            printf("n: %d, cut: %e, time: %f\n", A.n, out.funct_V, out.elapsed);
             DCRBR_out_destroy(&out);
             break;
         default:

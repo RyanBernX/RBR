@@ -425,19 +425,23 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     /* initialize function */
     if (param.full){
         fun = cal_maxcut_value(A, nnode, k, U);
+    } else {
+        fun = cal_maxcut_value_p(A, nnode, k, p, U, iU);
     }
 
 
     /* randomly choose idx to avoid false sharing. */
 
     for (int iter = 0; iter < maxIter; ++iter){
-        if (param.verbose && iter % 10 == 0){
+        if (param.verbose && iter % param.funct_chk_freq == 0){
             if (iter == 0){
                 fprintf(stderr, "Iter: %7d  fval: %13.7e  df: ---\n", iter, fun);
 	    } else {
                 fprintf(stderr, "Iter: %7d  fval: %13.7e  df: %13.7e\n", iter, fun, df);
             }
         }
+
+        if (iter > 0 && fabs(df < param.tol)) break;
 
         if (param.shuffle) shuffling(nnode, index);
 #pragma omp parallel
@@ -505,13 +509,17 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
                 }
 
             }
-            /* TODO: If necessary, update the objective. */
-            if (iter % 10 == 0){
-            fun_p = fun;
-            fun = cal_maxcut_value(A, nnode, k, U);
-            df = fun - fun_p;
-	    }
 
+        }
+        /* TODO: If necessary, update the objective. */
+        if (iter % param.funct_chk_freq == 0){
+            fun_p = fun;
+            if (param.full){
+                fun = cal_maxcut_value(A, nnode, k, U);
+            } else {
+                fun = cal_maxcut_value_p(A, nnode, k, p, U, iU);
+            }
+            df = fun - fun_p;
         }
 
     }
@@ -599,6 +607,54 @@ double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U){
     cut = cblas_ddot(n, A->d, 1, &one, 0);
     cut -= cblas_ddot(n * k, AU, 1, U, 1);
 
+    free(AU);
+    return cut / 4;
+}
+
+/** @fn double cal_maxcut_value_p()
+ * @brief Compute the maxcut value. Both A and U are sparse.
+ */
+
+double cal_maxcut_value_p(adj_matrix *A, int n, int k, int p, const double *U, const int *iU){
+    double *AU, *val, cut;
+    int *ir, *jc;
+    /* maybe waste of storage 
+       Note: row major index */
+    AU = (double*)calloc(n * k, sizeof(double));
+
+    ir = A->pntr; jc = A->indx; val = A->val;
+
+    /* compute A * U */
+#pragma omp parallel for
+    for (int r = 0; r < n; ++r){ /* for every row of A and U*/
+        int i_start_AU = r * k;
+        for (int i = ir[r]; i < ir[r + 1]; ++i){
+            int i_start = jc[i] * p;
+            for (int c = 0; c < p; ++c){
+                int col = iU[i_start + c];
+                if (col == -1) break;
+                if (val == NULL){
+                    AU[i_start_AU + col] += U[i_start + c];
+                } else {
+                    AU[i_start_AU + col] += val[i] * U[i_start + c];
+                }
+            }
+        }
+    }
+
+    /* compute cut value */
+    double one = 1;
+    cut = cblas_ddot(n, A->d, 1, &one, 0);
+    for (int r = 0; r < n; ++r){
+        int i_start = r * p;
+        for (int c = 0; c < p; ++c){
+            int col = iU[i_start + c];
+            if (col == -1) break;
+            cut -= U[i_start + c] * AU[r * k + col];
+        }
+    }
+
+    free(AU);
     return cut / 4;
 }
 

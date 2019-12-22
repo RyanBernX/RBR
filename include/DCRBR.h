@@ -64,6 +64,8 @@ typedef struct {
   int p;
   int roundIter;
   int full;
+  int funct_chk_freq;
+  double tol;
   rbr_extract extract;
   kmeans_param k_param;
 } DCRBR_param;
@@ -90,6 +92,7 @@ void DCRBR_out_destroy(DCRBR_out *out);
 int *generate_labels(int n, int k, const double *U);
 double cal_obj_value(adj_matrix *A, int n, int k, const double *U, double lambda, const double *UTB);
 double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U);
+double cal_maxcut_value_p(adj_matrix *A, int n, int k, int p, const double *U, const int *iU);
 
 /* metric.c */
 int cal_mis(int, int, const int*, const int*);
