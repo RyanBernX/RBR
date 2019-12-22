@@ -366,6 +366,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     double *U, *d, *val;
     int *index, *labels, *ir, *jc, *iU = NULL;
     DCRBR_out out;
+    double fun = 0, fun_p = 0, df = 0;
 
     /* Import local variables */
     nnzero = A->nnz; nnode = A->n; d = A->d;
@@ -397,7 +398,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
      * iU indicates which column each element belongs to
      *
      * full = 1
-     * U is dense row major, each row with k elements */
+     * U is dense column major, each row with k elements */
 
     if (param.full){
         U = (double*)calloc(nnode * k, sizeof(double));
@@ -421,17 +422,27 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
         }
     }
 
+    /* initialize function */
+    if (param.full){
+        fun = cal_maxcut_value(A, nnode, k, U);
+    }
+
 
     /* randomly choose idx to avoid false sharing. */
 
     for (int iter = 0; iter < maxIter; ++iter){
-        if (param.verbose)
-            fprintf(stderr, "Iter: %d\n", iter);
+        if (param.verbose && iter % 10 == 0){
+            if (iter == 0){
+                fprintf(stderr, "Iter: %7d  fval: %13.7e  df: ---\n", iter, fun);
+	    } else {
+                fprintf(stderr, "Iter: %7d  fval: %13.7e  df: %13.7e\n", iter, fun, df);
+            }
+        }
 
         if (param.shuffle) shuffling(nnode, index);
 #pragma omp parallel
         {
-#pragma omp for nowait
+#pragma omp for
             /* j is the # of row that is being optimized. */
             for (int j = 0; j < nnode; ++j){
                 int rid = param.shuffle ? index[j] : j;
@@ -495,6 +506,11 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
 
             }
             /* TODO: If necessary, update the objective. */
+            if (iter % 10 == 0){
+            fun_p = fun;
+            fun = cal_maxcut_value(A, nnode, k, U);
+            df = fun - fun_p;
+	    }
 
         }
 
@@ -565,6 +581,7 @@ double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U){
     ir = A->pntr; jc = A->indx; val = A->val;
 
     /* compute A * U */
+#pragma omp parallel for
     for (int j = 0; j < k; ++j){
         for (int r = 0; r < n; ++r){
             for (int i = ir[r]; i < ir[r + 1]; ++i){
