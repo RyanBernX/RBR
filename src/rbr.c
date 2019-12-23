@@ -378,9 +378,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
         fprintf(stderr, "maxIter: %d    p: %d\n", param.maxIter, param.p);
         if (param.extract == RBR_ROUNDING){
             fprintf(stderr, "extraction method: rounding\n");
-        } else if (param.extract == RBR_KMEANS){
-            fprintf(stderr, "extraction method: kmeans\n");
-        } else {
+        } else if (param.extract == RBR_NONE){
             fprintf(stderr, "extraction method: none\n");
         }
         fprintf(stderr, "Use full storage of U: %s\n", param.full == 1 ? "yes" : "no");
@@ -525,9 +523,14 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     }
     out.elapsed = omp_get_wtime() - out.elapsed;
 
+    /* compute the best cut */
+    if (param.extract == RBR_ROUNDING){
+        if (param.verbose)
+            fprintf(stderr, "Perform rounding for %d times...\n", maxIter - roundIter);
+        out.Q = rounding_maxcut(A, nnode, k, p, maxIter - roundIter, U, iU, labels);
+        out.labels = labels;
+    }
 
-    //for (int i = 0; i < nnode; ++i) labels[i] = iU[i * p];
-    out.labels = labels;
     out.U = U; out.iU = iU;
     out.iter = iter;
     if (param.full){
@@ -541,7 +544,9 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
 
 
     if (param.verbose){
-        fprintf(stderr, "Cut value: %e.\n", out.funct_V);
+        fprintf(stderr, "Funct value: %e.\n", out.funct_V);
+        if (param.extract == RBR_ROUNDING)
+            fprintf(stderr, "Cut value: %e\n", out.Q);
         fprintf(stderr, "Elapsed: %f sec.\n", out.elapsed);
     }
 
@@ -659,3 +664,61 @@ double cal_maxcut_value_p(adj_matrix *A, int n, int k, int p, const double *U, c
     return cut / 4;
 }
 
+double cal_maxcut_value_i(adj_matrix *A, int n, int *labels){
+    double cut = 0;
+#pragma omp parallel for shared(A,n,labels) reduction(+:cut)
+    for (int r = 0; r < n; ++r){
+        for (int i = A->pntr[r]; i < A->pntr[r+1]; ++i){
+            /* r, jc[i] */
+            if (labels[r] != labels[A->indx[i]])
+                cut += A->val[i];
+        }
+    }
+    return cut / 2;
+}
+
+double rounding_maxcut(adj_matrix *A, int n, int k, int p, int ntries, const double *U, const int *iU, int *labels){
+    int *labels_tmp;
+    double *Ur, *r;
+    double cut = 0, cut_tmp;
+
+    labels_tmp = (int*)malloc(n * sizeof(double));
+    Ur = (double*)malloc(n * sizeof(double));
+    r = (double*)malloc(k * sizeof(double));
+
+    for (int i = 0; i < ntries; ++i){
+        /* random gaussian */
+        random_gaussian_vector(k, r);
+        double nrm = cblas_dnrm2(k, r, 1);
+        /* normalize */
+        cblas_dscal(k, 1.0 / nrm, r, 1);
+        /* Ur = U * r */
+        if (iU == NULL){
+            cblas_dgemv(CblasColMajor, CblasNoTrans, n, k, 1, U, n, r, 1, 0, Ur, 1);
+        } else {
+            memset(Ur, 0, n * sizeof(double));
+            /* sparse U * r */
+#pragma omp parallel for
+            for (int row = 0; row < n; ++row){
+                int i_start = row * p;
+                for (int i = 0; i < p; ++i){
+                    int col = iU[i_start + i];
+                    if (col == -1) break;
+                    Ur[row] += U[i_start + i] * r[col];
+                }
+            }
+        }
+        /* rounding */
+        for (int j = 0; j < n; ++j){
+            labels_tmp[j] = Ur[j] > 0 ? 1 : -1;
+        }
+        cut_tmp = cal_maxcut_value_i(A, n, labels_tmp);
+        /* record the best cut */
+        if (i == 0 || cut_tmp > cut){
+            cut = cut_tmp;
+            memcpy(labels, labels_tmp, n * sizeof(int));
+        }
+    }
+    free(labels_tmp); free(Ur); free(r);
+    return cut;
+}

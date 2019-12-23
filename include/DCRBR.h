@@ -75,9 +75,12 @@ typedef struct {
 /* from contrib */
 void dsort(int n, double *data, int *index);
 
-/* c++ plug in (nth_element) */
+/* c++ plugin (nth_element) */
 void solve_sub_U(int n, int p, double *xmid, int *ixmid, int *iPos);
 void solve_sub_maxcut(int n, int p, double *xmid, int *ixmid);
+
+/* c++ plugin (random gaussian) */
+void random_gaussian_vector(int n, double *x);
 
 void shuffling(int n, int *card);
 void shuffling_false(int n, int *card);
@@ -94,6 +97,8 @@ int *generate_labels(int n, int k, const double *U);
 double cal_obj_value(adj_matrix *A, int n, int k, const double *U, double lambda, const double *UTB);
 double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U);
 double cal_maxcut_value_p(adj_matrix *A, int n, int k, int p, const double *U, const int *iU);
+double cal_maxcut_value_i(adj_matrix *A, int n, int *labels);
+double rounding_maxcut(adj_matrix *A, int n, int k, int p, int ntries, const double *U, const int *iU, int *labels);
 
 /* metric.c */
 int cal_mis(int, int, const int*, const int*);
