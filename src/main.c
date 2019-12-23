@@ -153,7 +153,7 @@ int main(int argc, char **argv){
             break;
         case 1: /* maxcut */
             out = rbr_maxcut(&A, k, param);
-            printf("n: %d, cut: %e, time: %f\n", A.n, out.funct_V, out.elapsed);
+            printf("n: %d, iter: %d, cut: %e, time: %f\n", A.n, out.iter, out.funct_V, out.elapsed);
             DCRBR_out_destroy(&out);
             break;
         default:

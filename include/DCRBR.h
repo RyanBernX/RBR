@@ -50,6 +50,7 @@ typedef struct {
   int *labels;
   double *U;
   int *iU;
+  int iter;
   double elapsed;
   double funct_V;
   double CC;

@@ -431,8 +431,8 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
 
 
     /* randomly choose idx to avoid false sharing. */
-
-    for (int iter = 0; iter < maxIter; ++iter){
+    int iter;
+    for (iter = 0; iter < maxIter; ++iter){
         if (param.verbose && iter % param.funct_chk_freq == 0){
             if (iter == 0){
                 fprintf(stderr, "Iter: %7d  fval: %13.7e  df: ---\n", iter, fun);
@@ -529,6 +529,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     //for (int i = 0; i < nnode; ++i) labels[i] = iU[i * p];
     out.labels = labels;
     out.U = U; out.iU = iU;
+    out.iter = iter;
     if (param.full){
         out.funct_V = cal_maxcut_value(A, nnode, k, U);
     } else {
