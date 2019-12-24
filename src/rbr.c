@@ -671,7 +671,10 @@ double cal_maxcut_value_i(adj_matrix *A, int n, int *labels){
         for (int i = A->pntr[r]; i < A->pntr[r+1]; ++i){
             /* r, jc[i] */
             if (labels[r] != labels[A->indx[i]])
-                cut += A->val[i];
+                if (A->val == NULL)
+                    ++cut;
+                else
+                    cut += A->val[i];
         }
     }
     return cut / 2;
