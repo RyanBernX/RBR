@@ -534,10 +534,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     if (param.full){
         out.funct_V = cal_maxcut_value(A, nnode, k, U);
     } else {
-        double *U_tmp = (double*)malloc(nnode * k * sizeof(double));
-        sparse_to_full_c(nnode, k, p, U, iU, U_tmp);
-        out.funct_V = cal_maxcut_value(A, nnode, k, U_tmp);
-        free (U_tmp);
+        out.funct_V = cal_maxcut_value_p(A, nnode, k, p, U, iU);
     }
 
 
