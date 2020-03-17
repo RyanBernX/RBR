@@ -396,7 +396,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
      * iU indicates which column each element belongs to
      *
      * full = 1
-     * U is dense column major, each row with k elements */
+     * U is dense row major, each row with k elements */
 
     if (param.full){
         U = (double*)calloc(nnode * k, sizeof(double));
@@ -412,7 +412,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     for (int i = 0; i < nnode; ++i){
         if (param.full){
             int init_class = index[i] % k;
-            U[i + nnode * init_class] = 1;
+            U[i * k + init_class] = 1;
         } else {
             U[i * p] = 1.0;
             iU[i * p] = index[i] % k;
@@ -457,23 +457,21 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
                 if (param.full){
                     /* Sparse m-by-v product: b = -U'*A(:,idxj)
                      * Note: A is symmetric ! csr <=> csc */
-                    for (int ii = 0; ii < k; ++ii){
-                        for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
-                            int col = jc[jj];
-                            if (val == NULL){
-                                b[ii] -= U[col + ii * nnode];
-                            } else {
-                                b[ii] -= val[jj] * U[col + ii * nnode];
-                            }
-                        }
+                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                        int col = jc[jj];
+                        if (val == NULL)
+                            cblas_daxpy(k, 1, U + col * k, 1, b, 1);
+                        else
+                            cblas_daxpy(k, val[jj], U + col * k, 1, b, 1);
+                               
                     }
 
                     /* b is derived, now we solve the subproblem:
                      * minimize b'x, s.t x'x=1. */
                     double nrm = cblas_dnrm2(k, b, 1);
                     if (fabs(nrm > 1e-14)){
-                        cblas_dscal(k, 1.0 / nrm, b, 1);
-                        cblas_dcopy(k, b, 1, U + rid, nnode);
+                        cblas_dscal(k, -1.0 / nrm, b, 1);
+                        cblas_dcopy(k, b, 1, U + rid * k, 1);
                     }
 
 
@@ -536,10 +534,7 @@ DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
     if (param.full){
         out.funct_V = cal_maxcut_value(A, nnode, k, U);
     } else {
-        double *U_tmp = (double*)malloc(nnode * k * sizeof(double));
-        sparse_to_full_c(nnode, k, p, U, iU, U_tmp);
-        out.funct_V = cal_maxcut_value(A, nnode, k, U_tmp);
-        free (U_tmp);
+        out.funct_V = cal_maxcut_value_p(A, nnode, k, p, U, iU);
     }
 
 
@@ -596,14 +591,12 @@ double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U){
 
     /* compute A * U */
 #pragma omp parallel for
-    for (int j = 0; j < k; ++j){
-        for (int r = 0; r < n; ++r){
-            for (int i = ir[r]; i < ir[r + 1]; ++i){
-                if (val == NULL){
-                    AU[j * n + r] += U[jc[i] + j * n];
-                } else {
-                    AU[j * n + r] += val[i] * U[jc[i] + j * n];
-                }
+    for (int r = 0; r < n; ++r){
+        for (int i = ir[r]; i < ir[r + 1]; ++i){
+            if (val == NULL){
+                cblas_daxpy(k, 1.0, U + jc[i] * k, 1, AU + r * k, 1);
+            } else {
+                cblas_daxpy(k, val[i], U + jc[i] * k, 1, AU + r * k, 1);
             }
         }
     }
@@ -697,7 +690,7 @@ double rounding_maxcut(adj_matrix *A, int n, int k, int p, int ntries, const dou
         cblas_dscal(k, 1.0 / nrm, r, 1);
         /* Ur = U * r */
         if (iU == NULL){
-            cblas_dgemv(CblasColMajor, CblasNoTrans, n, k, 1, U, n, r, 1, 0, Ur, 1);
+            cblas_dgemv(CblasRowMajor, CblasNoTrans, n, k, 1, U, k, r, 1, 0, Ur, 1);
         } else {
             memset(Ur, 0, n * sizeof(double));
             /* sparse U * r */
