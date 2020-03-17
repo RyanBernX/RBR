@@ -35,7 +35,7 @@ else
     CXXFLAGS = -Wall -O3 -std=c++11 -D_CBLAS_HEADER=\"${CBLAS_HEADER}\" -I../include -fPIC
 endif
 
-OBJS=rbr.o kmeans.o metric.o spmat.o utils.o solve_sub_U.o
+OBJS=rbr.o kmeans.o metric.o spmat.o utils.o solve_sub_U.o normal_dist.o
 
 .PHONY: clean exec 
 
@@ -52,6 +52,9 @@ exec: main.o $(OBJS)
 	$(CC) -o rbr $^ $(CFLAGS) $(LIBS)
 
 solve_sub_U.o: solve_sub_U.cpp
+	$(CXX) -c -o $@ $< $(CXXFLAGS)
+
+normal_dist.o: normal_dist.cpp
 	$(CXX) -c -o $@ $< $(CXXFLAGS)
 
 %.o: %.c
