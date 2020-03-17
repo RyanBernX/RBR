@@ -7,3 +7,5 @@ rbr
 src/contrib_test
 combo/
 data/
+src/logs/
+*.log
