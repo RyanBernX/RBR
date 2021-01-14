@@ -26,7 +26,7 @@
 #ifdef HAVE_MKL
 #include "mkl.h"
 #else
-#include _CBLAS_HEADER
+#include "cblas.h"
 #endif
 #include "DCRBR.h"
 

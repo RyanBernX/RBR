@@ -22,51 +22,40 @@ performance even if `k` is small.
 ## How to Install
 RBR has only been tested on Linux currently. To use RBR you will need a recent
 Linux operating system with:
-- A recent C compiler with OpenMP support (gcc >= 4.8)
-- A C++ compiler that supports C++11 (g++ >= 4.8 is fine)
-- GNU Make
-- CBLAS or Intel MKL
+- A recent version of CMake3
+- A C compiler with OpenMP support
+- A C++11 compiler (g++ >= 4.8 is fine)
+- Any BLAS implementation with C interface (CBLAS)
 
 First download the source code and unzip anywhere you like.
 
-Then change into the directory `src` and edit `Makefile` with your favorite
-text editor. Basically, you will need to specify the compilers and the location
-of the required libraries.
-
-### Compile with Intel MKL
-It is highly recommended to use Intel MKL as external BLAS routines,
-which is publicly available at [here](https://software.intel.com/en-us/mkl).
-
-To compile with Intel MKL, one should set `MKL` variable in `Makefile` to
-`on`, and specify `MKLROOT` (this can be done using Intel MKL's initialization
-script). 
-
-### Compile with CBLAS
-If no Intel MKL is available, RBR can be linked against any implementation of
-CBLAS (the performance will be lower, though). To use CBLAS, one should set
-`MKL` variable to `off`, and specify the name of the CBLAS header and libraries.
-For example:
+Then configure using `cmake`
 ```
-CBLAS_HEADER = cblas.h
-CBLAS_LIBS = -lblas
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
 ```
 
-### Compilation
-After you have done with the configuration part of Intel MKL/CBLAS, simply
-type `make` in the directory `src`. If no errors occur, you should see
-the output files:
-- `libDCRBR.a`: static library of RBR
-- `rbr`: ELF executable of RBR
+Type `make` to build. If the build is successful, you will see
+`libRBR.so` and `rbr` in the current directory.
+
+### Using BLAS
+RBR uses OpenMP to perform parallelization explicity. Thus a **non-threaded**
+version of BLAS is preferred. If you are using [Intel MKL](https://software.intel.com/en-us/mkl),
+it is recommended to use the sequential library `libmkl_sequential.so`.
+This can be configured by adding `-DBLA_VENDOR=Intel10_64lp_seq` option
+when invoking `cmake`.
+```
+cmake -DBLA_VENDOR=Intel10_64lp_seq ..
+```
 
 ### Compile the MATLAB interface
 To compile the MATLAB interface you'll need a recent MATLAB distribution.
-First add MATLAB binary directory to `PATH`. Then type
+Then pass the `-DBUILD_MATLAB_INTERFACE=ON` and optionally `-DMatlab_ROOT`
+to the `cmake` command.
 ```
-make mex
+cmake -DBUILD_MATLAB_INTERFACE=ON -DMatlab_ROOT=/opt/MATLAB ..
 ```
-to compile MEX files. If there are no errors, you should see the output
-file:
-- `matlab/mex_rbr.mexa64`: MEX file (64-bit)
 
 ## Usage
 To use RBR, type `./rbr -h` to see the usage. You can also run the examples
@@ -76,8 +65,8 @@ we provide:
 ./rbr -v ../examples/amazon 100 5
 ```
 
-RBR currently only supports [Rutherford Boeing (RB) Sparse Matrix File Format]
-(http://people.math.sc.edu/Burkardt/data/rb/rb.html)
+RBR currently only supports
+[Rutherford Boeing (RB) Sparse Matrix File Format](http://people.math.sc.edu/Burkardt/data/rb/rb.html)
 as input. More formats will be supported in the future release.
 
 ## References
@@ -93,7 +82,7 @@ to contact the authors if you have any comments or bug reports.
 ## Copyright
 RBR
 
-Copyright (C) 2019  Haoyang Liu (liuhaoyang@pku.edu.cn)
+Copyright (C) 2021  Haoyang Liu (liuhaoyang@pku.edu.cn)
                     Zaiwen Wen  (wenzw@pku.edu.cn)
 
 This program is free software: you can redistribute it and/or modify

@@ -1,10 +1,11 @@
 output/
+build/
 *.o
 *.a
+*.so
 *.mexa64
 ex0[0-9]
 rbr
-src/contrib_test
 combo/
 data/
 src/logs/
