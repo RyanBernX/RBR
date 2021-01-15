@@ -16,7 +16,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
     }
 
     if (nrhs != 8){
-        mexErrMsgTxt("Usage: [labels, U] = rbr_mex(A, d, k, p, maxit, extract, full, prob)\n");
+        mexErrMsgTxt("Usage: [labels, U] = mex_rbr(A, d, k, p, maxit, extract, full, prob)\n");
         return;
     }
 

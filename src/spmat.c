@@ -38,7 +38,7 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int 
     FILE *fp = fopen(filename, "r");
     int nnz, row, col;
     char headerl1[82], headerl2[82], headerl3[82], headerl4[82], which[4];
-    int *pntr, *indx;
+    int *pntr, *indx, cnt;
     double *val;
 
     if (fp == NULL){
@@ -46,10 +46,22 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int 
         return -1;
     }
 
-    fgets(headerl1, 82, fp);
-    fgets(headerl2, 82, fp);
-    fgets(headerl3, 82, fp);
-    fgets(headerl4, 82, fp);
+    if (fgets(headerl1, 82, fp) == NULL){
+        fprintf(stderr, "Line 1 is invalid or missing.\n");
+        return -1;
+    }
+    if (fgets(headerl2, 82, fp) == NULL){
+        fprintf(stderr, "Line 2 is invalid or missing.\n");
+        return -1;
+    }
+    if (fgets(headerl3, 82, fp) == NULL){
+        fprintf(stderr, "Line 3 is invalid or missing.\n");
+        return -1;
+    }
+    if (fgets(headerl4, 82, fp) == NULL){
+        fprintf(stderr, "Line 4 is invalid or missing.\n");
+        return -1;
+    }
     sscanf(headerl3, "%3s %d %d %d", which, &row, &col, &nnz);
 
     /* check the shape */
@@ -73,7 +85,7 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int 
 
         /* input PNTR */
         for(int i = 0; i <= col; ++i){
-            fscanf(fp, "%d", pntr + i);
+            cnt = fscanf(fp, "%d", pntr + i);
             if (i == 0){
                 one_based ^= pntr[0];
             }
@@ -84,7 +96,7 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int 
         }
         /* input INDX */
         for(int i = 0; i < nnz; ++i){
-            fscanf(fp, "%d", indx + i);
+            cnt = fscanf(fp, "%d", indx + i);
             indx[i] -= one_based;
         }
         /* input VAL for weighted graph and A->d */
@@ -92,7 +104,7 @@ int read_adj_matrix_csr(const char *filename, adj_matrix* A, int one_based, int 
             A->val = (double*)malloc(nnz * sizeof(double));
             val = A->val;
             for (int i = 0; i < nnz; ++i){
-                fscanf(fp, "%lg", val + i);
+                cnt = fscanf(fp, "%lg", val + i);
             }
             
             /* compute A->d = A * ones */

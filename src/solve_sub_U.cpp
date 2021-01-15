@@ -37,7 +37,7 @@ void solve_sub_U(int n, int p, double *a, int *ia, int *iPos) {
   /* discard those positive or zero entries */
   double *a_tmp = (double*)calloc(p, sizeof(double));
   int *ia_tmp = (int*)calloc(p, sizeof(int));
-  double min_pos;
+  double min_pos = 0;
   int imin_pos = -1, num = 0;
   for (int i = 0; i < p; ++i){
     if (a[ia[i]] < 0){

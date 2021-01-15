@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.3)
 
 project(RBR VERSION 0.1.0)
 
@@ -65,7 +65,7 @@ find_package(BLAS REQUIRED)
 
 # check whether it is MKL
 if (BLAS_LIBRARIES MATCHES "libmkl_core")
-    message(STATUS "Enable MKL support in OptSuite.")
+    message(STATUS "Enable MKL support in RBR.")
     add_definitions(-DHAVE_MKL)
 endif()
 
@@ -87,30 +87,17 @@ endif()
 
 # matlab support
 if (BUILD_MATLAB_INTERFACE)
-    find_package(Matlab COMPONENTS MAT_LIBRARY)
+    find_package(Matlab COMPONENTS MEX_COMPILER)
 
     if (Matlab_FOUND)
         message(STATUS "Matlab found at ${Matlab_ROOT_DIR}")
 
-        #        # add matlab interface library
-        #        add_executable(readmat example/readmat.cpp)
-        #        add_executable(wf example/wf.cpp)
-        #        add_executable(matcomp example/matcomp.cpp)
-        #
-        #        # compile defs
-        #        set(Matlab_COMPILE_DEFS MATLAB_DEFAULT_RELEASE=R2017b MATLAB_MEX_FILE)
-        #
-        #        target_compile_definitions(OptSuite_matlab PUBLIC ${Matlab_COMPILE_DEFS})
-        #        target_compile_definitions(readmat PUBLIC ${Matlab_COMPILE_DEFS})
-        #        target_compile_definitions(matcomp PUBLIC ${Matlab_COMPILE_DEFS})
-        #        target_compile_definitions(svd PUBLIC ${Matlab_COMPILE_DEFS})
-        #        target_include_directories(OptSuite_matlab PUBLIC ${Matlab_INCLUDE_DIRS})
-        #        target_link_libraries(OptSuite_matlab Eigen3::Eigen OptSuite
-        #            ${Matlab_MEX_LIBRARY} ${Matlab_MX_LIBRARY} ${Matlab_MAT_LIBRARY})
-        #        target_link_libraries(readmat Eigen3::Eigen OptSuite_matlab OptSuite)
-        #        target_link_libraries(wf Eigen3::Eigen OptSuite_matlab OptSuite FFTW::Double)
-        #        target_link_libraries(svd Eigen3::Eigen OptSuite_matlab OptSuite)
-        #        target_link_libraries(matcomp Eigen3::Eigen OptSuite_matlab OptSuite)
+        # add matlab interface library
+        matlab_add_mex(
+            NAME mex_rbr SHARED
+            SRC ${MATLAB_SOURCE}
+            LINK_TO RBR
+        )
 
     else()
         message(WARNING "-DBUILD_MATLAB_INTERFACE=ON is set but Matlab not found. "

@@ -24,6 +24,7 @@ d = sum(A, 2);
 opts = struct();
 opts.verbose = 1;
 opts.extract = 'rounding';
+opts.full = 1;
 k = 2;
 
 % call rbr

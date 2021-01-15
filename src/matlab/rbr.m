@@ -34,10 +34,10 @@ function idx = rbr(A, d, k, opts)
     
     if strcmp(opts.prob, 'community')
         if strcmp(opts.extract, 'rounding')
-            idx = mex_rbr(A, d, k, opts.p, opts.maxit, 0, opts.full);
+            idx = mex_rbr(A, d, k, opts.p, opts.maxit, 0, opts.full, 0);
             idx = idx + 1;
         elseif strcmp(opts.extract, 'kmeans')
-            [~, U] = mex_rbr(A, d, k, opts.p, opts.maxit, 2, opts.full);
+            [~, U] = mex_rbr(A, d, k, opts.p, opts.maxit, 2, opts.full, 0);
             % perform K-means
             if opts.verbose
                 fprintf('Invoking K-means ... patient ...\n');

@@ -25,7 +25,7 @@ Linux operating system with:
 - A recent version of CMake3
 - A C compiler with OpenMP support
 - A C++11 compiler (g++ >= 4.8 is fine)
-- Any BLAS implementation with C interface (CBLAS)
+- Any BLAS implementation with 32-bit integer and C interface (CBLAS)
 
 First download the source code and unzip anywhere you like.
 
@@ -51,11 +51,27 @@ cmake -DBLA_VENDOR=Intel10_64lp_seq ..
 
 ### Compile the MATLAB interface
 To compile the MATLAB interface you'll need a recent MATLAB distribution.
-Then pass the `-DBUILD_MATLAB_INTERFACE=ON` and optionally `-DMatlab_ROOT`
+Then pass the `-DBUILD_MATLAB_INTERFACE=ON` and optionally `-DMatlab_ROOT_DIR`
 to the `cmake` command.
 ```
-cmake -DBUILD_MATLAB_INTERFACE=ON -DMatlab_ROOT=/opt/MATLAB ..
+cmake -DBUILD_MATLAB_INTERFACE=ON -DMatlab_ROOT_DIR=/opt/MATLAB ..
 ```
+
+**Known Issue:**  
+MATLAB will crash if the library `libRBR.so` is linked against dynamic BLAS
+libraries. This is because by default MATLAB preloads 64-bit integer BLAS
+libraries, which will conflict with RBR's external BLAS libraries.
+To solve the issue, try either of the following solutions:
+- Build RBR using **static** BLAS libraries **compiled with** `-fPIC`. E.g.
+  ```
+  cmake -DBLA_STATIC=ON -DBLA_VENDOR=Intel10_64lp_seq ..
+  ```
+- Preload the **dynamic** BLAS libraries before starting MATLAB. E.g.
+  ```
+  LD_PRELOAD=/path/to/blas/lib/libblas.so matlab
+  ```
+
+See [this thread](https://stackoverflow.com/questions/20544265/use-external-blas-and-lapack-libraries-in-a-matlab-mex-file) for more details.
 
 ## Usage
 To use RBR, type `./rbr -h` to see the usage. You can also run the examples
