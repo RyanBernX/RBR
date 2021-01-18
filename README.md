@@ -39,6 +39,9 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 Type `make` to build. If the build is successful, you will see
 `libRBR.so` and `rbr` in the current directory.
 
+Optionally, type `make install` to install all necessary files to the
+destination folder specified by `-CMAKE_INSTALL_PREFIX`.
+
 ### Using BLAS
 RBR uses OpenMP to perform parallelization explicity. Thus a **non-threaded**
 version of BLAS is preferred. If you are using [Intel MKL](https://software.intel.com/en-us/mkl),
@@ -57,10 +60,10 @@ to the `cmake` command.
 cmake -DBUILD_MATLAB_INTERFACE=ON -DMatlab_ROOT_DIR=/opt/MATLAB ..
 ```
 
-**Known Issue:**  
+#### Known Issue:
 MATLAB will crash if the library `libRBR.so` is linked against dynamic BLAS
 libraries. This is because by default MATLAB preloads 64-bit integer BLAS
-libraries, which will conflict with RBR's external BLAS libraries.
+libraries, which conflicts with RBR's external BLAS libraries.
 To solve the issue, try either of the following solutions:
 - Build RBR using **static** BLAS libraries **compiled with** `-fPIC`. E.g.
   ```
@@ -71,7 +74,7 @@ To solve the issue, try either of the following solutions:
   LD_PRELOAD=/path/to/blas/lib/libblas.so matlab
   ```
 
-See [this thread](https://stackoverflow.com/questions/20544265/use-external-blas-and-lapack-libraries-in-a-matlab-mex-file) for more details.
+See [this page](https://stackoverflow.com/questions/20544265/use-external-blas-and-lapack-libraries-in-a-matlab-mex-file) for more details.
 
 ## Usage
 To use RBR, type `./rbr -h` to see the usage. You can also run the examples

@@ -99,9 +99,25 @@ if (BUILD_MATLAB_INTERFACE)
             LINK_TO RBR
         )
 
+        # installing
+        install(TARGETS mex_rbr LIBRARY DESTINATION lib)
+        install(DIRECTORY src/matlab DESTINATION src)
+
     else()
         message(WARNING "-DBUILD_MATLAB_INTERFACE=ON is set but Matlab not found. "
             "Try passing -DMatlab_ROOT_DIR to specify Matlab installation location")
     endif()
 endif()
 
+# installing
+install(TARGETS rbr RBR
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    )
+install(DIRECTORY include/
+    DESTINATION include/RBR
+    FILES_MATCHING PATTERN "*.h"
+    )
+install(FILES ${PROJECT_BINARY_DIR}/config.h
+    DESTINATION include/RBR)
