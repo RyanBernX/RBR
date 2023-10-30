@@ -120,7 +120,7 @@ int main(int argc, char **argv){
     param->roundIter = param->maxIter - offset;
 
     if (argc - optind < 3 - param->full){
-        show_help();
+        fprintf(stderr, "Please specify the parameter p (sparsity argument).\n");
         return 1;
     }
 
