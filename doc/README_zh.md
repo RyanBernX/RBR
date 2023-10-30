@@ -165,4 +165,4 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ## 其它语言版本
 
-- [English](docs/README_en.md)
+- [English](README_en.md)

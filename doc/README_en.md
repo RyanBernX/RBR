@@ -171,4 +171,4 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ## Other Languages
 
-- [简体中文](docs/README_zh.md)
+- [简体中文](README_zh.md)
