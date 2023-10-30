@@ -19,7 +19,7 @@
 #ifndef RBR_API_MACRO_H
 #define RBR_API_MACRO_H
 
-// 导出共享库符号的相关宏
+// macros that export symbols in SO
 #if defined(__WIN32__) || defined(__CYGWIN__)
     #define RBR_HELPER_DLL_IMPORT __declspec(dllimport)
     #define RBR_HELPER_DLL_EXPORT __declspec(dllexport)
@@ -34,7 +34,7 @@
     #define RBR_HELPER_DLL_LOCAL
 #endif
 
-#ifdef arrabit_EXPORTS
+#ifdef RBR_EXPORTS
     #define RBR_API RBR_HELPER_DLL_EXPORT
 #else
     #define RBR_API RBR_HELPER_DLL_IMPORT
