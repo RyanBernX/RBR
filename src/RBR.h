@@ -18,31 +18,33 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
  */
 
-#ifndef __SPMAT_H_
-#define __SPMAT_H_
+#ifndef RBR_RBR_H
+#define RBR_RBR_H
 
-typedef struct{
-    int *indx;
-    int *pntr;
-    double *val;
-    double *d;
-    int nnz;
-    int n;
-    char label[9];
-    char desc[73];
-} adj_matrix;
+#include "adj_matrix.h"
+#include "types.h"
+#include "api_macro.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// main functions
+RBR_API rbr_result * rbr(const adj_matrix *A, RBR_INT k, const rbr_param *param);
+RBR_API rbr_result * rbr_maxcut(const adj_matrix *A, RBR_INT k, const rbr_param *param);
 
-int read_adj_matrix_csr(const char *, adj_matrix *, int, int);
-void adj_matrix_destroy(adj_matrix *);
+// rbr_results
+// defined in rbr_result.c
+RBR_API rbr_result * rbr_result_create(void);
+RBR_API void rbr_result_destroy(rbr_result *out);
+
+// rbr_param
+// defined in rbr_param.c
+RBR_API rbr_param * rbr_param_create(void);
+RBR_API void rbr_param_destroy(rbr_param *par);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-

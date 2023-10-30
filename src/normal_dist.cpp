@@ -18,19 +18,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
  */
 
+#include "types.h"
+#include "rbr_subroutines.h"
 #include <random>
 
-extern "C" {
+void random_gaussian_vector(RBR_INT n, double *x){
 
-void random_gaussian_vector(int n, double *x){
+    std::default_random_engine generator;
+    std::normal_distribution<double> distribution(0.0,1.0);
 
-  std::default_random_engine generator;
-  std::normal_distribution<double> distribution(0.0,1.0);
-  
-  for (int i = 0; i < n; ++i){
-      x[i] = distribution(generator);
-  }
-
+    for (RBR_INT i = 0; i < n; ++i){
+        x[i] = distribution(generator);
+    }
 }
 
-}

@@ -18,30 +18,34 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
  */
 
-#include "rbr_subroutines.h"
-#include <string.h>
+#ifndef RBR_ADJ_MATRIX_H
+#define RBR_ADJ_MATRIX_H
 
-void sparse_to_full(RBR_INT n, RBR_INT k, RBR_INT p, const double *U, const RBR_INT *iU, double *out){
-    memset(out, 0, n * k * sizeof(double));
+#include "types.h"
+#include "api_macro.h"
 
-    for (RBR_INT i = 0; i < n; ++i){
-        for (RBR_INT j = 0; j < p; ++j){
-            RBR_INT col = iU[i * p + j];
-            if (col == -1) break;
-            out[i * k + col] = U[i * p + j];
-        }
-    }
+typedef struct{
+    RBR_INT *indx;
+    RBR_INT *pntr;
+    double *val;
+    double *d;
+    RBR_INT nnz;
+    RBR_INT n;
+    char label[9];
+    char desc[73];
+} adj_matrix;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+RBR_API adj_matrix * adj_matrix_create(RBR_INT n, RBR_INT nnz);
+RBR_API adj_matrix * read_adj_matrix_csr(const char *filename, int is_one_based, int is_weighted);
+RBR_API void adj_matrix_destroy(adj_matrix *mat);
+
+#ifdef __cplusplus
 }
+#endif
 
-void sparse_to_full_c(RBR_INT n, RBR_INT k, RBR_INT p, const double *U, const RBR_INT *iU, double *out){
-    memset(out, 0, n * k * sizeof(double));
-
-    for (RBR_INT i = 0; i < n; ++i){
-        for (RBR_INT j = 0; j < p; ++j){
-            RBR_INT col = iU[i * p + j];
-            if (col == -1) break;
-            out[col * n + i] = U[i * p + j];
-        }
-    }
-}
+#endif
 

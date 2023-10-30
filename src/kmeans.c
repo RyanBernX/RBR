@@ -35,35 +35,34 @@
  *
  * ==========================================================================
  */
+
+#include "rbr_subroutines.h"
+#include "rbr_blas.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-#ifdef HAVE_MKL
-#include "mkl.h"
-#else
-#include "cblas.h"
-#endif
-#include "DCRBR.h"
+// functions used only in this source file
+int check_diff(RBR_INT n, const RBR_INT *labels1, const RBR_INT *labels2);
+RBR_INT my_idamin(RBR_INT n, const double *x);
 
-void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
-        kmeans_param opts);
-int check_diff(int n, int *labels1, int *labels2);
-int my_idamin(int n, const double *x);
-
-void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
+int kmeans(RBR_INT n, RBR_INT p, const double *X, RBR_INT K, RBR_INT *labels, double *H,
         kmeans_param opts){
-    /* MKL_INT seed[] = {23, (unsigned)time(NULL) % 4096, 23, 1};
-    double *mu, *ones;
-     **/
+    int exit_code = 0;
     
     /* memory allocation */
-    int *cluster_num = (int*)malloc(K * sizeof(int));
-    int *old_labels = (int*)malloc(n * sizeof(int));
+    RBR_INT *cluster_num = (RBR_INT*)malloc(K * sizeof(RBR_INT));
+    RBR_INT *old_labels = (RBR_INT*)malloc(n * sizeof(RBR_INT));
     double *XH = (double*)malloc(n * K * sizeof(double));
     double *X_norm = (double*)malloc(n * sizeof(double));
     double *H_norm = (double*)malloc(K * sizeof(double));
+
+    if (cluster_num == NULL || old_labels == NULL || XH == NULL || X_norm == NULL || H_norm == NULL){
+        fprintf(stderr, "[ERROR] %s: insufficient memory\n", __func__);
+        exit_code = 1;
+        goto cleanup;
+    }
 
     /* initialization */
     switch (opts.init){
@@ -83,24 +82,24 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
             break;
             */
         case KMEANS_SAMPLE:
-            for (int i = 0; i < K; ++i){
+            for (RBR_INT i = 0; i < K; ++i){
                 memcpy(H + i * p, X + (rand() % n) * p, p * sizeof(double));
             }
             break;
         case KMEANS_LABELS:
-            memset(cluster_num, 0, K * sizeof(int));
-            for (int i = 0; i < n; ++i){
+            memset(cluster_num, 0, K * sizeof(RBR_INT));
+            for (RBR_INT i = 0; i < n; ++i){
                 if (cluster_num[labels[i]] == 0){
                     memset(H + labels[i] * p, 0, p * sizeof(double));
                 }
                 cblas_daxpy(p, 1.0, X + i * p, 1, H + labels[i] * p, 1);
                 ++cluster_num[labels[i]];
             }
-            for (int i = 0; i < K; ++i){
+            for (RBR_INT i = 0; i < K; ++i){
                 if (cluster_num[i] != 0){
                     cblas_dscal(p, 1.0 / cluster_num[i], H + i * p, 1);
                 } else {
-                    printf("cluster %d is empty!\n", i);
+                    fprintf(stderr, "[WARNING] %s: cluster %d is empty!\n", __func__, (int)i);
                 }
             }
             break;
@@ -115,65 +114,66 @@ void kmeans(int n, int p, const double *X, int K, int *labels, double *H,
     /* main loop */
     for (int iter = 0; iter < opts.maxit; ++iter){
         /* re-assign clusters */
-        memcpy(old_labels, labels, n * sizeof(int));
+        memcpy(old_labels, labels, n * sizeof(RBR_INT));
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, n, K, p, -2.0,
                 X, p, H, p, 0.0, XH, K);
-        for (int i = 0; i < n; ++i){
+        for (RBR_INT i = 0; i < n; ++i){
             X_norm[i] = cblas_ddot(p, X + i * p, 1, X + i * p, 1);
         }
-        for (int i = 0; i < K; ++i){
+        for (RBR_INT i = 0; i < K; ++i){
             H_norm[i] = cblas_ddot(p, H + i * p, 1, H + i * p, 1);
         }
-        for (int i = 0; i < n; ++i){
+        for (RBR_INT i = 0; i < n; ++i){
             cblas_daxpy(K, 1.0, H_norm, 1, XH + i * K, 1);
         }
-        for (int i = 0; i < K; ++i){
+        for (RBR_INT i = 0; i < K; ++i){
             cblas_daxpy(n, 1.0, X_norm, 1, XH + i, K);
         }
 
-        for (int i = 0; i < n; ++i){
+        for (RBR_INT i = 0; i < n; ++i){
             //labels[i] = cblas_idamin(K, XH + i * K, 1);
             labels[i] = my_idamin(K, XH + i * K);
         }
 
         /* compute centroids */
-        memset(cluster_num, 0, K * sizeof(int));
-        for (int i = 0; i < n; ++i){
+        memset(cluster_num, 0, K * sizeof(RBR_INT));
+        for (RBR_INT i = 0; i < n; ++i){
             if (cluster_num[labels[i]] == 0){
                 memset(H + labels[i] * p, 0, p * sizeof(double));
             }
             cblas_daxpy(p, 1.0, X + i * p, 1, H + labels[i] * p, 1);
             ++cluster_num[labels[i]];
         }
-        for (int i = 0; i < K; ++i){
+        for (RBR_INT i = 0; i < K; ++i){
             if (cluster_num[i] != 0){
                 cblas_dscal(p, 1.0 / cluster_num[i], H + i * p, 1);
             } else {
-                printf("iter %d cluster %d is empty!\n", iter, i);
+                fprintf(stderr, "[WARNING] %s: iter %d cluster %d is empty!\n", __func__, iter, (int)i);
             }
         }
 
 
         /* check stopping rule */
-	int moved = check_diff(n, old_labels, labels);
+        int moved = check_diff(n, old_labels, labels);
         if (!moved){
             break;
         }
-	if (opts.verbose){
-	    printf("iter %d: moved %d\n", iter, moved);
-	}
+        if (opts.verbose){
+            printf("[INFO] %s: iter %d: moved %d\n", __func__, iter, moved);
+        }
     }
 
+cleanup:
     free(cluster_num);
     free(old_labels);
     free(XH);
     free(X_norm);
     free(H_norm);
-    return;
+    return exit_code;
 }
 
-int check_diff(int n, int *labels1, int *labels2){
-    for (int i = 0; i < n; ++i){
+int check_diff(RBR_INT n, const RBR_INT *labels1, const RBR_INT *labels2){
+    for (RBR_INT i = 0; i < n; ++i){
         if (labels1[i] != labels2[i]){
 	    return 1;
         }
@@ -181,9 +181,13 @@ int check_diff(int n, int *labels1, int *labels2){
     return 0;
 }
 
-int my_idamin(int n, const double *x){
-    int ipos = 0, v = x[0];
-    for (int i = 1; i < n; ++i){
+RBR_INT my_idamin(RBR_INT n, const double *x){
+    if (n == 0){
+        return -1;
+    }
+
+    RBR_INT ipos = 0, v = x[0];
+    for (RBR_INT i = 1; i < n; ++i){
         if (fabs(x[i]) < v){
             v = fabs(x[i]);
             ipos = i;
