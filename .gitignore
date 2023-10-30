@@ -10,3 +10,4 @@ combo/
 data/
 src/logs/
 *.log
+.ycm_extra_conf.py
