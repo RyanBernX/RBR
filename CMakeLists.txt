@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.3)
+cmake_minimum_required(VERSION 3.5)
 
-project(RBR VERSION 0.1.0)
+project(RBR VERSION 1.0.0)
 
 # disable in-source builds
 set(CMAKE_DISABLE_SOURCE_CHANGES ON)
@@ -17,107 +17,87 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # set module path
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
-file(GLOB_RECURSE C_SOURCE ${PROJECT_SOURCE_DIR}/src/*.c)
-file(GLOB_RECURSE CXX_SOURCE ${PROJECT_SOURCE_DIR}/src/*.cpp)
-list(FILTER C_SOURCE EXCLUDE REGEX "${PROJECT_SOURCE_DIR}/src/main\.c")
-list(FILTER C_SOURCE EXCLUDE REGEX "${PROJECT_SOURCE_DIR}/src/mex_rbr\.c")
-set(SOURCE ${C_SOURCE} ${CXX_SOURCE})
-set(MATLAB_SOURCE ${PROJECT_SOURCE_DIR}/src/mex_rbr.c)
-
 # define options
 option(BUILD_SHARED_LIBS "Enable shared library. Default: ON" ON)
-option(BUILD_MATLAB_INTERFACE
-    "Enable the build of matlab interface. Default: OFF" OFF)
+option(BUILD_MATLAB_INTERFACE "Enable the build of matlab interface. Default: OFF" OFF)
+option(USE_ILP64 "Build RBR with 64-bit integer interface. Default: OFF" OFF)
+option(ENABLE_EXTRA_PREFIX_PATH_MACOS "Add extra search path when invoking FindXxxx (MacOS only). Default: ON" ON)
 
-# define targets
-add_executable(rbr src/main.c)
-add_library(RBR ${SOURCE})
-target_link_libraries(rbr RBR)
-
-configure_file(include/config.h.in config.h)
-
+# build types
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
     message(STATUS "CMAKE_BUILD_TYPE is unset, defaulting to Debug")
     set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -m64 -march=native")
+# compilers support
+if ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+    add_compile_options(-Wall -Wextra -Wpedantic)
     if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-        add_compile_options(-Wpedantic)
+        add_compile_options(-g)
     endif()
-elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
+elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
     # note: not working for current version because C++17 support is poor
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -inline-forceinline")
+    add_compile_options(-Wall -Wextra -inline-forceinline)
+elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_C_COMPILER_ID}" STREQUAL "AppleClang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+    if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+        add_compile_options(-g)
+    elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+        # C99 是允许使用的，但 Clang 依然可能会给出警告，因此屏蔽
+        add_compile_options(-Wno-c99-extensions)
+    endif()
 else()
-    message(WARNING "Unsupport CXX compiler ${CMAKE_CXX_COMPILER_ID}")
+    message(WARNING "Unsupported C compiler ${CMAKE_C_COMPILER_ID}")
 endif()
 
-include_directories("${PROJECT_BINARY_DIR}" "${PROJECT_SOURCE_DIR}/include")
+# MacOS extra search paths
+if (APPLE AND ENABLE_EXTRA_PREFIX_PATH_MACOS)
+    set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/opt/homebrew/opt/openblas;/opt/homebrew/opt/libomp")
+    # try to find frameworks after standard libraries or headers
+    set(CMAKE_FIND_FRAMEWORK "LAST")
+endif()
 
-# openmp support
+# openmp dep
 find_package(OpenMP REQUIRED COMPONENTS C)
-target_link_libraries(rbr OpenMP::OpenMP_C)
-target_link_libraries(RBR OpenMP::OpenMP_C)
 
-# blas support
-find_package(BLAS REQUIRED)
+# blas dep
+find_package(CBLAS REQUIRED)
 
 # check whether it is MKL
-if (BLAS_LIBRARIES MATCHES "libmkl_core")
+if (BLAS_LIBRARIES MATCHES "mkl")
     message(STATUS "Enable MKL support in RBR.")
     add_definitions(-DHAVE_MKL)
 endif()
 
-# RBR use cblas interface, so check whether it is included in BLAS
-include(CheckFunctionExists)
-set(CMAKE_REQUIRED_LIBRARIES "${BLAS_LIBRARIES}")
-check_function_exists(cblas_daxpy BLAS_HAS_CBLAS)
-target_link_libraries(RBR ${BLAS_LIBRARIES})
-target_link_libraries(rbr ${BLAS_LIBRARIES})
-# if not included, then try to find external cblas
-if (BLAS_HAS_CBLAS)
-    message(STATUS "BLAS library includes CBLAS.")
-else()
-    message(STATUS "BLAS library does not include CBLAS. Trying standalone CBLAS.")
-    find_package(CBLAS REQUIRED)
-    target_link_libraries(RBR CBLAS::CBLAS)
-    target_link_libraries(rbr CBLAS::CBLAS)
+# ilp64
+if (USE_ILP64)
+    add_compile_options(-DRBR_ILP64)
 endif()
 
-# matlab support
-if (BUILD_MATLAB_INTERFACE)
-    find_package(Matlab COMPONENTS MEX_COMPILER)
+# subdirs
+add_subdirectory(src)
 
-    if (Matlab_FOUND)
-        message(STATUS "Matlab found at ${Matlab_ROOT_DIR}")
+# output compile summary
+include(cmake/utils.cmake)
+message("-- Configuration summary for RBR:")
+message("   -- prefix: ${CMAKE_INSTALL_PREFIX}")
+message("   -- build: ${CMAKE_BUILD_TYPE}")
+message("   -- SHARED_LIBS: ${BUILD_SHARED_LIBS}")
+message("   -- ILP64: ${USE_ILP64}")
+get_target_property(MAIN_FLAGS RBR COMPILE_OPTIONS)
+string(REPLACE ";" " " MAIN_FLAGS_STR "${MAIN_FLAGS}")
+cprsummary("CC" "${CMAKE_C_COMPILER}"
+    "${CMAKE_C_FLAGS_DEBUG}"
+    "${CMAKE_C_FLAGS_MINSIZEREL}"
+    "${CMAKE_C_FLAGS_RELEASE}"
+    "${CMAKE_C_FLAGS_RELWITHDEBINFO}"
+    "${MAIN_FLAGS_STR}")
 
-        # add matlab interface library
-        matlab_add_mex(
-            NAME mex_rbr SHARED
-            SRC ${MATLAB_SOURCE}
-            LINK_TO RBR
-        )
+cprsummary("CXX" "${CMAKE_CXX_COMPILER}"
+    "${CMAKE_CXX_FLAGS_DEBUG}"
+    "${CMAKE_CXX_FLAGS_MINSIZEREL}"
+    "${CMAKE_CXX_FLAGS_RELEASE}"
+    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}"
+    "${MAIN_FLAGS_STR}")
 
-        # installing
-        install(TARGETS mex_rbr LIBRARY DESTINATION lib)
-        install(DIRECTORY src/matlab DESTINATION src)
-
-    else()
-        message(WARNING "-DBUILD_MATLAB_INTERFACE=ON is set but Matlab not found. "
-            "Try passing -DMatlab_ROOT_DIR to specify Matlab installation location")
-    endif()
-endif()
-
-# installing
-install(TARGETS rbr RBR
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    )
-install(DIRECTORY include/
-    DESTINATION include/RBR
-    FILES_MATCHING PATTERN "*.h"
-    )
-install(FILES ${PROJECT_BINARY_DIR}/config.h
-    DESTINATION include/RBR)
+libsummary("CBLAS" "${CBLAS_INCLUDE_DIRS}" "${CBLAS_LIBRARIES}")

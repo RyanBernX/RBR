@@ -17,52 +17,62 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
  */
+
+#include "RBR.h"
+#include "rbr_blas.h"
+#include "rbr_subroutines.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <omp.h>
 
-#ifdef HAVE_MKL
-#include "mkl.h"
-#else
-#include "cblas.h"
-#endif
-#include "DCRBR.h"
-
-
-DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
+rbr_result * rbr(const adj_matrix *A, RBR_INT k, const rbr_param * param) {
     /* k is the number of communities */
-    int nnode, nnzero, maxIter, roundIter, p;
+    int maxIter, roundIter;
     double lambda;
-    double *U, *d;
-    int *index, *labels, *ir, *jc, *iU = NULL;
-    DCRBR_out out;
+    double *U = NULL;
+    RBR_INT *index = NULL, *labels = NULL, *iU = NULL;
+
+    rbr_result * out = rbr_result_create();
+
+    if (out == NULL){
+        fprintf(stderr, "[ERROR] %s: insufficient memory. Failed to create output.\n", __func__);
+        return NULL;
+    }
 
     /* Import local variables */
-    nnzero = A->nnz; nnode = A->n; d = A->d;
-    ir = A->pntr; jc = A->indx;
-    maxIter = param.maxIter; roundIter = param.roundIter, p = param.p;
-    if (param.verbose){
-        fprintf(stderr, "Input summary:\n");
-        fprintf(stderr, "Nodes: %d    Edges: %d\n", A->n, A->nnz / 2);
-        fprintf(stderr, "maxIter: %d    p: %d\n", param.maxIter, param.p);
-        if (param.extract == RBR_ROUNDING){
-            fprintf(stderr, "extraction method: rounding\n");
-        } else if (param.extract == RBR_KMEANS){
-            fprintf(stderr, "extraction method: kmeans\n");
+    RBR_INT nnzero = A->nnz;
+    RBR_INT nnode = A->n;
+    double *d = A->d;
+    const RBR_INT *ir = A->pntr;
+    const RBR_INT *jc = A->indx;
+    maxIter = param->maxIter;
+    roundIter = param->roundIter;
+    RBR_INT p = param->p;
+
+    if (param->verbose){
+        printf("---------------- Input summary ----------------\n");
+        printf("  Nodes: " _fmt_int "           Edges: " _fmt_int "\n", A->n, A->nnz / 2);
+        printf("maxIter: %d               p: " _fmt_int "\n", param->maxIter, param->p);
+        printf("-----------------------------------------------\n");
+        if (param->extract == RBR_ROUNDING){
+            printf("Extraction method: rounding\n");
+        } else if (param->extract == RBR_KMEANS){
+            printf("Extraction method: kmeans\n");
         } else {
-            fprintf(stderr, "extraction method: none\n");
+            printf("Extraction method: none\n");
         }
-        fprintf(stderr, "Use full storage of U: %s\n", param.full == 1 ? "yes" : "no");
+        printf("Use full storage of U: %s\n", param->full == 1 ? "yes" : "no");
+        printf("-----------------------------------------------\n");
     }
-    labels = (int*)malloc(nnode * sizeof(int));
+    labels = (RBR_INT *)malloc(nnode * sizeof(RBR_INT));
 
     /* sum(d) = nnzero, so lambda = 1/nnezero. */
     lambda = 1.0 / nnzero;
 
     /* timing */
-    out.elapsed = omp_get_wtime();
+    out->elapsed = omp_get_wtime();
 
     /* Initialize U 
      *
@@ -73,22 +83,31 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
      * full = 1
      * U is dense row major, each row with k elements */
 
-    if (param.full){
+    if (param->full){
         U = (double*)calloc(nnode * k, sizeof(double));
     } else {
         U = (double*)calloc(nnode * p, sizeof(double));
-        iU = (int*)malloc(nnode * p * sizeof(int));
+        iU = (RBR_INT*)malloc(nnode * p * sizeof(RBR_INT));
     }
 
-    index = (int*)malloc(nnode * sizeof(int));
-    param.shuffle ? shuffling(nnode, index) : shuffling_false(nnode, index);
+    index = (RBR_INT*)malloc(nnode * sizeof(RBR_INT));
+
+    // initialize UTB
+    double UTB[k];
+
+    // validate memory
+    if (U == NULL || labels == NULL || index == NULL || (param->full == 0 && iU == NULL)){
+        fprintf(stderr, "[ERROR] %s: insufficient memory\n", __func__);
+        goto cleanup_on_error;
+    }
+
+    param->shuffle ? shuffling(nnode, index) : shuffling_false(nnode, index);
 
     /* Initialize obj and UTB; UTB = U'*d; */
-    double UTB[k];
     memset(UTB, 0, k * sizeof(double));
-    for (int i = 0; i < nnode; ++i){
-        if (param.full){
-            int init_class = index[i] % k;
+    for (RBR_INT i = 0; i < nnode; ++i){
+        if (param->full){
+            RBR_INT init_class = index[i] % k;
             U[i + nnode * init_class] = 1;
             UTB[init_class] += d[i];
         } else {
@@ -105,27 +124,28 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
     /* randomly choose idx to avoid false sharing. */
 
     for (int iter = 0; iter < maxIter; ++iter){
-        if (param.verbose)
-            fprintf(stderr, "Iter: %d\n", iter);
+        if (param->verbose){
+            printf("Iter: %d (%f s) \n", iter, omp_get_wtime() - out->elapsed);
+        }
 
-        if (param.shuffle) shuffling(nnode, index);
+        if (param->shuffle) shuffling(nnode, index);
 #pragma omp parallel
         {
 #pragma omp for nowait
             /* j is the # of row that is being optimized. */
-            for (int j = 0; j < nnode; ++j){
-                int rid = param.shuffle ? index[j] : j;
+            for (RBR_INT j = 0; j < nnode; ++j){
+                RBR_INT rid = param->shuffle ? index[j] : j;
 
                 double midb1[k], b[k], xmid[k];
-                int ixmid[k];
+                RBR_INT ixmid[k];
 
                 memset(b, 0, k * sizeof(double));
 
-                if (param.full){
+                if (param->full){
                     /* Sparse m-by-v product: b = -U'*A(:,idxj)
                      * Note: A is symmetric ! csr <=> csc */
-                    for (int ii = 0; ii < k; ++ii){
-                        for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                    for (RBR_INT ii = 0; ii < k; ++ii){
+                        for (RBR_INT jj = ir[rid]; jj < ir[rid + 1]; ++jj){
                             b[ii] -= U[jc[jj] + ii * nnode];
                         }
                     }
@@ -139,8 +159,9 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
                      * minimize b'x, s.t x'x=1, x>=0. */
 
                     /* [minVal, minPos] = min(b); */
-                    double minVal = b[0];  int minPos = 0;    
-                    for (int ii = 1; ii < k; ++ii) {
+                    double minVal = b[0]; 
+                    RBR_INT minPos = 0;    
+                    for (RBR_INT ii = 1; ii < k; ++ii) {
                         if (b[ii] < minVal){
                             minVal = b[ii];
                             minPos = ii;
@@ -148,7 +169,7 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
                     }
 
                     if (minVal < 0){
-                        for (int iii = 0; iii < k; iii++)   {
+                        for (RBR_INT iii = 0; iii < k; iii++)   {
                             if (b[iii] < 0) xmid[iii] = -b[iii];
                             else xmid[iii] = 0;
                         }
@@ -171,11 +192,11 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
 
                     /* Sparse - Sparse product: b = -U'*A(:,idxj)
                      * Note: A is symmetric ! csr <=> csc */
-                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
+                    for (RBR_INT jj = ir[rid]; jj < ir[rid + 1]; ++jj){
                         /* consider row #jc[jj] in U */
                         double *rU = U + jc[jj] * p;
-                        int *irU = iU + jc[jj] * p;
-                        for (int ii = 0; ii < p; ++ii){
+                        RBR_INT *irU = iU + jc[jj] * p;
+                        for (RBR_INT ii = 0; ii < p; ++ii){
                             if (irU[ii] == -1) break;
                             b[irU[ii]] -= rU[ii];
                         }
@@ -183,9 +204,9 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
 
                     /* b += (UTB-U(idx(j),:)'*d(idx(j)))*lambda*d(idx(j)) */
                     cblas_dcopy(k, UTB, 1, midb1, 1);
-                    for (int i = 0; i < p; ++i){
+                    for (RBR_INT i = 0; i < p; ++i){
                         double *rU = U + rid * p;
-                        int *irU = iU + rid * p;
+                        RBR_INT *irU = iU + rid * p;
                         if (irU[i] == -1) break;
                         midb1[irU[i]] -= d[rid] * rU[i];
                     }
@@ -194,7 +215,7 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
                     /* b is derived, now we solve the subproblem
                        minimize b'x
                        s.t x'x=1, x>=0, |x|_0<=p*/
-                    int iPos;
+                    RBR_INT iPos;
                     cblas_dcopy(k, b, 1, xmid, 1);
                     solve_sub_U(k, p, xmid, ixmid, &iPos);
 
@@ -204,36 +225,36 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
                     }
 
                     /* UTB = UTB + (xmid - U(idx(j), :)')*d(idx(j)); */
-                    for (int i = 0; i < iPos; ++i)
+                    for (RBR_INT i = 0; i < iPos; ++i)
                         UTB[ixmid[i]] += d[rid] * xmid[i];
-                    for (int i = 0; i < p; ++i){
+                    for (RBR_INT i = 0; i < p; ++i){
                         double *rU = U + rid * p;
-                        int *irU = iU + rid * p;
+                        RBR_INT *irU = iU + rid * p;
                         if (irU[i] == -1) break;
                         UTB[irU[i]] -= d[rid] * rU[i];
                     }
 
                     /* U(idx(j), :) = xmid; */
                     cblas_dcopy(iPos, xmid, 1, U + rid * p, 1);
-                    memcpy(iU + rid * p, ixmid, iPos * sizeof(int));
+                    memcpy(iU + rid * p, ixmid, iPos * sizeof(RBR_INT));
                     if (iPos < p) iU[rid * p + iPos] = -1;
                 }
 
             }
             /* TODO: If necessary, update the objective. */
 
-            if (param.extract == RBR_ROUNDING && iter > roundIter){
+            if (param->extract == RBR_ROUNDING && iter > roundIter){
                 /* Rounding Process */
 #pragma omp for nowait
-                for (int j = 0; j < nnode; ++j){
-                    if (param.full){
-                        int maxPos = imax(k, U + j, nnode);
+                for (RBR_INT j = 0; j < nnode; ++j){
+                    if (param->full){
+                        RBR_INT maxPos = imax(k, U + j, nnode);
                         labels[j] = maxPos;
-                        for (int jj = 0; jj < k; ++jj) U[j + jj * nnode] = 0;
+                        for (RBR_INT jj = 0; jj < k; ++jj) U[j + jj * nnode] = 0;
                         U[j + nnode * maxPos] = 1;
                     } else {
-                        int rid = param.shuffle ? index[j] : j;
-                        int maxPos = imax_p(p, U + rid * p, iU + rid * p);
+                        RBR_INT rid = param->shuffle ? index[j] : j;
+                        RBR_INT maxPos = imax_p(p, U + rid * p, iU + rid * p);
                         labels[rid] = iU[rid * p + maxPos];
                         U[rid * p] = 1.0;
                         iU[rid * p] = iU[rid * p + maxPos];
@@ -246,475 +267,138 @@ DCRBR_out rbr(adj_matrix *A, int k, DCRBR_param param) {
         }
 
         /* due to the rounding process, we have to recalculate the UTB each time. */
-        if (param.extract == RBR_ROUNDING && iter > roundIter){
+        if (param->extract == RBR_ROUNDING && iter > roundIter){
             //cblas_dgemv(CblasColMajor, CblasTrans, nnode, k, 1, U, nnode, d, 1, 0, UTB, 1);
             memset(UTB, 0, k * sizeof(double));
 
             //#pragma omp parallel for
-            for (int j = 0; j < nnode; ++j)
+            for (RBR_INT j = 0; j < nnode; ++j)
                 UTB[labels[j]] += d[j];
         }
 
     }
-    out.elapsed = omp_get_wtime() - out.elapsed;
+
+    out->elapsed = omp_get_wtime() - out->elapsed;
     /* kmeans */
-    if (param.extract == RBR_KMEANS){
+    if (param->extract == RBR_KMEANS){
         double *full_U;
         /* perform one-step rounding to find the initial value */
-        if (param.full){
+        if (param->full){
 #pragma omp for
-            for (int j = 0; j < nnode; ++j){
-                int maxPos = imax(k, U + j, nnode);
+            for (RBR_INT j = 0; j < nnode; ++j){
+                RBR_INT maxPos = imax(k, U + j, nnode);
                 labels[j] = maxPos;
             }
 
             full_U = U;
         } else {
 #pragma omp for
-            for (int jj = 0; jj < nnode; ++jj){
-                int maxPos = imax_p(p, U + jj * p, iU + jj * p);
+            for (RBR_INT jj = 0; jj < nnode; ++jj){
+                RBR_INT maxPos = imax_p(p, U + jj * p, iU + jj * p);
                 labels[jj] = iU[jj * p + maxPos];
             }
 
             full_U = (double*)malloc(nnode * k * sizeof(double));
+            
+            if (full_U == NULL){
+                fprintf(stderr, "[ERROR] %s: insufficient memory\n", __func__);
+                goto cleanup_on_error;
+            }
             sparse_to_full(nnode, k, p, U, iU, full_U);
         }
 
-        param.k_param.init = KMEANS_LABELS;
+        kmeans_param kpar = param->k_param;
+        kpar.init = KMEANS_LABELS;
         double *H = (double*)malloc(k * k * sizeof(double));
-        kmeans(nnode, k, full_U, k, labels, H, param.k_param);
+
+        if (H == NULL){
+            fprintf(stderr, "[ERROR] %s: insufficient memory\n", __func__);
+            if (!param->full){
+                free(full_U);
+            }
+            goto cleanup_on_error;
+        }
+        int kret = kmeans(nnode, k, full_U, k, labels, H, kpar);
         free(H); free(full_U);
+
+        if (kret){
+            fprintf(stderr, "[ERROR] %s: kmeans returns nonzero code\n", __func__);
+            goto cleanup_on_error;
+        }
     }
-    if (param.verbose)
-        fprintf(stderr, "Elapsed: %f sec.\n", out.elapsed);
+    if (param->verbose)
+        printf("Elapsed: %f sec.\n", out->elapsed);
 
     //for (int i = 0; i < nnode; ++i) labels[i] = iU[i * p];
-    out.labels = labels;
-    out.U = U; out.iU = iU;
-    if (param.extract != RBR_NONE){
+    out->labels = labels;
+    out->U = U;
+    out->iU = iU;
+
+    if (param->extract != RBR_NONE){
         /* re-compute UTB */
         memset(UTB, 0, k * sizeof(double));
-        for (int j = 0; j < nnode; ++j)
+        for (RBR_INT j = 0; j < nnode; ++j)
             UTB[labels[j]] += d[j];
-        out.Q = cal_Q(A, nnode, k, labels, lambda, UTB);
-        out.CC = cal_CC(A, nnode, k, labels);
-        out.S  = cal_Strength(A, nnode, k, labels);
+        out->Q = cal_Q(A, nnode, k, labels, lambda, UTB);
+        out->CC = cal_CC(A, nnode, k, labels);
+        out->S  = cal_Strength(A, nnode, k, labels);
     }
 
+    if (0){
+cleanup_on_error:
+        if (U) free(U);
+        if (iU) free(iU);
+        if (labels) free(labels);
+        out->exit_code = 100;
+    }
     free(index);
     return out;
 
 }
 
-void shuffling(int n, int *card){
-    for (int i = 0; i < n; ++i) card[i] = i;
+void shuffling(RBR_INT n, RBR_INT *card){
+    for (RBR_INT i = 0; i < n; ++i) card[i] = i;
 
     /* Shuffle elements by randomly exchanging each with one other. */
-    for (int i = 0; i < n - 1; ++i) {
-        int r = i + rand() % (n - i);
-        int temp = card[i]; card[i] = card[r]; card[r] = temp;
+    for (RBR_INT i = 0; i < n - 1; ++i) {
+        RBR_INT r = i + rand() % (n - i);
+        RBR_INT temp = card[i]; card[i] = card[r]; card[r] = temp;
     }
 }
 
-void shuffling_false(int n, int *card){
-    for (int i = 0; i < n; ++i) card[i] = i;
+void shuffling_false(RBR_INT n, RBR_INT *card){
+    for (RBR_INT i = 0; i < n; ++i) card[i] = i;
 }
 
-int imax(int n, const double *x, int incx){
-    int id, ret = 0;
+RBR_INT imax(RBR_INT n, const double *x, RBR_INT incx){
+    if (n == 0){
+        return -1;
+    }
+
+    RBR_INT id, ret = 0;
     double val = x[0];
 
-    for (id = 1; id < n; ++id)
+    for (id = 1; id < n; ++id){
         if (x[id * incx] > val){
             val = x[id * incx];
             ret = id;
         }
+    }
 
     return ret;
 }
 
-int imax_p(int n, const double *x, const int *ix){
-    int id, ret = 0;
+RBR_INT imax_p(RBR_INT n, const double *x, const RBR_INT *ix){
+    RBR_INT id, ret = 0;
     double val = x[0];
 
-    for (id = 1; ix[id] != -1 && id < n; ++id)
+    for (id = 1; ix[id] != -1 && id < n; ++id){
         if (x[id] > val){
             val = x[id];
             ret = id;
         }
-
-    return ret;
-}
-
-int* generate_labels(int nnode, int k, const double *U){
-    int *ret = (int*)malloc(nnode * sizeof(int));
-    int idx;
-
-    for (int i = 0; i < nnode; ++i){
-        /* find the first 1 in row i */
-        for (idx = 0; idx < k; ++idx)
-            if ( (int)U[idx * nnode + i] == 1) break;
-
-        ret[i] = idx;
     }
 
     return ret;
 }
 
-DCRBR_out rbr_maxcut(adj_matrix *A, int k, DCRBR_param param) {
-    int nnode, nnzero, maxIter, roundIter, p;
-    double *U, *d, *val;
-    int *index, *labels, *ir, *jc, *iU = NULL;
-    DCRBR_out out;
-    double fun = 0, fun_p = 0, df = 0;
-
-    /* Import local variables */
-    nnzero = A->nnz; nnode = A->n; d = A->d;
-    ir = A->pntr; jc = A->indx; val = A->val;
-    maxIter = param.maxIter; roundIter = param.roundIter, p = param.p;
-    if (param.verbose){
-        fprintf(stderr, "Input summary:\n");
-        fprintf(stderr, "Nodes: %d    Edges: %d\n", A->n, A->nnz / 2);
-        fprintf(stderr, "maxIter: %d    p: %d\n", param.maxIter, param.p);
-        if (param.extract == RBR_ROUNDING){
-            fprintf(stderr, "extraction method: rounding\n");
-        } else if (param.extract == RBR_NONE){
-            fprintf(stderr, "extraction method: none\n");
-        }
-        fprintf(stderr, "Use full storage of U: %s\n", param.full == 1 ? "yes" : "no");
-        fprintf(stderr, "Shuffle: %s\n", param.shuffle == 1 ? "yes" : "no");
-    }
-    labels = (int*)malloc(nnode * sizeof(int));
-
-    /* timing */
-    out.elapsed = omp_get_wtime();
-
-    /* Initialize U 
-     *
-     * full = 0
-     * U is sparse row major, each row with p elements
-     * iU indicates which column each element belongs to
-     *
-     * full = 1
-     * U is dense row major, each row with k elements */
-
-    if (param.full){
-        U = (double*)calloc(nnode * k, sizeof(double));
-    } else {
-        U = (double*)calloc(nnode * p, sizeof(double));
-        iU = (int*)malloc(nnode * p * sizeof(int));
-    }
-
-    index = (int*)malloc(nnode * sizeof(int));
-    param.shuffle ? shuffling(nnode, index) : shuffling_false(nnode, index);
-
-    /* Initialize U */
-    for (int i = 0; i < nnode; ++i){
-        if (param.full){
-            int init_class = index[i] % k;
-            U[i * k + init_class] = 1;
-        } else {
-            U[i * p] = 1.0;
-            iU[i * p] = index[i] % k;
-            if(p > 1) iU[i * p + 1] = -1;
-        }
-    }
-
-    /* initialize function */
-    if (param.full){
-        fun = cal_maxcut_value(A, nnode, k, U);
-    } else {
-        fun = cal_maxcut_value_p(A, nnode, k, p, U, iU);
-    }
-
-
-    /* randomly choose idx to avoid false sharing. */
-    int iter;
-    for (iter = 0; iter < maxIter; ++iter){
-        if (param.verbose && iter % param.funct_chk_freq == 0){
-            if (iter == 0){
-                fprintf(stderr, "Iter: %7d  fval: %13.7e  df: ---\n", iter, fun);
-	    } else {
-                fprintf(stderr, "Iter: %7d  fval: %13.7e  df: %13.7e\n", iter, fun, df);
-            }
-        }
-
-        if (iter > 0 && fabs(df < param.tol)) break;
-
-        if (param.shuffle) shuffling(nnode, index);
-#pragma omp parallel
-        {
-#pragma omp for
-            /* j is the # of row that is being optimized. */
-            for (int j = 0; j < nnode; ++j){
-                int rid = param.shuffle ? index[j] : j;
-
-                double b[k], xmid[k];
-                int ixmid[k];
-
-                memset(b, 0, k * sizeof(double));
-
-                if (param.full){
-                    /* Sparse m-by-v product: b = -U'*A(:,idxj)
-                     * Note: A is symmetric ! csr <=> csc */
-                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
-                        int col = jc[jj];
-                        if (val == NULL)
-                            cblas_daxpy(k, 1, U + col * k, 1, b, 1);
-                        else
-                            cblas_daxpy(k, val[jj], U + col * k, 1, b, 1);
-                               
-                    }
-
-                    /* b is derived, now we solve the subproblem:
-                     * minimize b'x, s.t x'x=1. */
-                    double nrm = cblas_dnrm2(k, b, 1);
-                    if (fabs(nrm > 1e-14)){
-                        cblas_dscal(k, -1.0 / nrm, b, 1);
-                        cblas_dcopy(k, b, 1, U + rid * k, 1);
-                    }
-
-
-                } else { /* param.full = 0 */
-
-                    /* Sparse - Sparse product: b = -U'*A(:,idxj)
-                     * Note: A is symmetric ! csr <=> csc */
-                    for (int jj = ir[rid]; jj < ir[rid + 1]; ++jj){
-                        /* consider row #jc[jj] in U */
-                        double *rU = U + jc[jj] * p;
-                        int *irU = iU + jc[jj] * p;
-                        for (int ii = 0; ii < p; ++ii){
-                            if (irU[ii] == -1) break;
-                            if (val == NULL){
-                                b[irU[ii]] -= rU[ii];
-                            } else {
-                                b[irU[ii]] -= val[jj] * rU[ii];
-                            }
-                        }
-                    }
-
-                    /* solve the subproblem */
-                    cblas_dcopy(k, b, 1, xmid, 1);
-                    solve_sub_maxcut(k, p, xmid, ixmid);
-                    double nrm = cblas_dnrm2(p, xmid, 1);
-                    if (fabs(nrm > 1e-14)){
-                        cblas_dscal(p, 1.0 / nrm, xmid, 1);
-                        cblas_dcopy(p, xmid, 1, U + rid * p, 1);
-                        memcpy(iU + rid * p, ixmid, p * sizeof(int));
-                    }
-                }
-
-            }
-
-        }
-        /* TODO: If necessary, update the objective. */
-        if (iter % param.funct_chk_freq == 0){
-            fun_p = fun;
-            if (param.full){
-                fun = cal_maxcut_value(A, nnode, k, U);
-            } else {
-                fun = cal_maxcut_value_p(A, nnode, k, p, U, iU);
-            }
-            df = fun - fun_p;
-        }
-
-    }
-    out.elapsed = omp_get_wtime() - out.elapsed;
-
-    /* compute the best cut */
-    if (param.extract == RBR_ROUNDING){
-        if (param.verbose)
-            fprintf(stderr, "Perform rounding for %d times...\n", maxIter - roundIter);
-        out.Q = rounding_maxcut(A, nnode, k, p, maxIter - roundIter, U, iU, labels);
-        out.labels = labels;
-    }
-
-    out.U = U; out.iU = iU;
-    out.iter = iter;
-    if (param.full){
-        out.funct_V = cal_maxcut_value(A, nnode, k, U);
-    } else {
-        out.funct_V = cal_maxcut_value_p(A, nnode, k, p, U, iU);
-    }
-
-
-    if (param.verbose){
-        fprintf(stderr, "Funct value: %e.\n", out.funct_V);
-        if (param.extract == RBR_ROUNDING)
-            fprintf(stderr, "Cut value: %e\n", out.Q);
-        fprintf(stderr, "Elapsed: %f sec.\n", out.elapsed);
-    }
-
-    free(index);
-    return out;
-
-}
-
-
-void DCRBR_out_destroy(DCRBR_out *out){
-    free(out->labels);
-    free(out->U);
-    if (out->iU != NULL) free(out->iU);
-}
-
-/** @fn double cal_obj_value()
- * @brief compute the objective function value. Requires: U column major, ldu=n
- */
-double cal_obj_value(adj_matrix *A, int n, int k, const double *U, double lambda, const double *UTB){
-    double *AU, obj;
-    int *ir, *jc;
-    AU = (double*)calloc(n * k, sizeof(double));
-
-    ir = A->pntr; jc = A->indx;
-
-    /* compute A * U */
-    for (int j = 0; j < k; ++j){
-#pragma omp parallel for
-        for (int r = 0; r < n; ++r){
-            for (int i = ir[r]; i < ir[r + 1]; ++i)
-                AU[j * n + r] += U[jc[i] + j * n];
-        }
-    }
-    /* compute <AU, U> */
-    obj = cblas_ddot(n * k, AU, 1, U, 1);
-    obj -= lambda * cblas_ddot(k, UTB, 1, UTB, 1);
-
-    return obj;
-}
-
-double cal_maxcut_value(adj_matrix *A, int n, int k, const double *U){
-    double *AU, *val, cut;
-    int *ir, *jc;
-    AU = (double*)calloc(n * k, sizeof(double));
-
-    ir = A->pntr; jc = A->indx; val = A->val;
-
-    /* compute A * U */
-#pragma omp parallel for
-    for (int r = 0; r < n; ++r){
-        for (int i = ir[r]; i < ir[r + 1]; ++i){
-            if (val == NULL){
-                cblas_daxpy(k, 1.0, U + jc[i] * k, 1, AU + r * k, 1);
-            } else {
-                cblas_daxpy(k, val[i], U + jc[i] * k, 1, AU + r * k, 1);
-            }
-        }
-    }
-
-    /* compute cut value */
-    double one = 1;
-    cut = cblas_ddot(n, A->d, 1, &one, 0);
-    cut -= cblas_ddot(n * k, AU, 1, U, 1);
-
-    free(AU);
-    return cut / 4;
-}
-
-/** @fn double cal_maxcut_value_p()
- * @brief Compute the maxcut value. Both A and U are sparse.
- */
-
-double cal_maxcut_value_p(adj_matrix *A, int n, int k, int p, const double *U, const int *iU){
-    double *AU, *val, cut;
-    int *ir, *jc;
-    /* maybe waste of storage 
-       Note: row major index */
-    AU = (double*)calloc(n * k, sizeof(double));
-
-    ir = A->pntr; jc = A->indx; val = A->val;
-
-    /* compute A * U */
-#pragma omp parallel for
-    for (int r = 0; r < n; ++r){ /* for every row of A and U*/
-        int i_start_AU = r * k;
-        for (int i = ir[r]; i < ir[r + 1]; ++i){
-            int i_start = jc[i] * p;
-            for (int c = 0; c < p; ++c){
-                int col = iU[i_start + c];
-                if (col == -1) break;
-                if (val == NULL){
-                    AU[i_start_AU + col] += U[i_start + c];
-                } else {
-                    AU[i_start_AU + col] += val[i] * U[i_start + c];
-                }
-            }
-        }
-    }
-
-    /* compute cut value */
-    double one = 1;
-    cut = cblas_ddot(n, A->d, 1, &one, 0);
-    for (int r = 0; r < n; ++r){
-        int i_start = r * p;
-        for (int c = 0; c < p; ++c){
-            int col = iU[i_start + c];
-            if (col == -1) break;
-            cut -= U[i_start + c] * AU[r * k + col];
-        }
-    }
-
-    free(AU);
-    return cut / 4;
-}
-
-double cal_maxcut_value_i(adj_matrix *A, int n, int *labels){
-    double cut = 0;
-#pragma omp parallel for shared(A,n,labels) reduction(+:cut)
-    for (int r = 0; r < n; ++r){
-        for (int i = A->pntr[r]; i < A->pntr[r+1]; ++i){
-            /* r, jc[i] */
-            if (labels[r] != labels[A->indx[i]])
-                if (A->val == NULL)
-                    ++cut;
-                else
-                    cut += A->val[i];
-        }
-    }
-    return cut / 2;
-}
-
-double rounding_maxcut(adj_matrix *A, int n, int k, int p, int ntries, const double *U, const int *iU, int *labels){
-    int *labels_tmp;
-    double *Ur, *r;
-    double cut = 0, cut_tmp;
-
-    labels_tmp = (int*)malloc(n * sizeof(double));
-    Ur = (double*)malloc(n * sizeof(double));
-    r = (double*)malloc(k * sizeof(double));
-
-    for (int i = 0; i < ntries; ++i){
-        /* random gaussian */
-        random_gaussian_vector(k, r);
-        double nrm = cblas_dnrm2(k, r, 1);
-        /* normalize */
-        cblas_dscal(k, 1.0 / nrm, r, 1);
-        /* Ur = U * r */
-        if (iU == NULL){
-            cblas_dgemv(CblasRowMajor, CblasNoTrans, n, k, 1, U, k, r, 1, 0, Ur, 1);
-        } else {
-            memset(Ur, 0, n * sizeof(double));
-            /* sparse U * r */
-#pragma omp parallel for
-            for (int row = 0; row < n; ++row){
-                int i_start = row * p;
-                for (int i = 0; i < p; ++i){
-                    int col = iU[i_start + i];
-                    if (col == -1) break;
-                    Ur[row] += U[i_start + i] * r[col];
-                }
-            }
-        }
-        /* rounding */
-        for (int j = 0; j < n; ++j){
-            labels_tmp[j] = Ur[j] > 0 ? 1 : -1;
-        }
-        cut_tmp = cal_maxcut_value_i(A, n, labels_tmp);
-        /* record the best cut */
-        if (i == 0 || cut_tmp > cut){
-            cut = cut_tmp;
-            memcpy(labels, labels_tmp, n * sizeof(int));
-        }
-    }
-    free(labels_tmp); free(Ur); free(r);
-    return cut;
-}

@@ -18,25 +18,27 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.\
  */
 
+#include "rbr_subroutines.h"
 #include <string.h>
-void sparse_to_full(int n, int k, int p, const double *U, const int *iU, double *out){
+
+void sparse_to_full(RBR_INT n, RBR_INT k, RBR_INT p, const double *U, const RBR_INT *iU, double *out){
     memset(out, 0, n * k * sizeof(double));
 
-    for (int i = 0; i < n; ++i){
-        for (int j = 0; j < p; ++j){
-            int col = iU[i * p + j];
+    for (RBR_INT i = 0; i < n; ++i){
+        for (RBR_INT j = 0; j < p; ++j){
+            RBR_INT col = iU[i * p + j];
             if (col == -1) break;
             out[i * k + col] = U[i * p + j];
         }
     }
 }
 
-void sparse_to_full_c(int n, int k, int p, const double *U, const int *iU, double *out){
+void sparse_to_full_c(RBR_INT n, RBR_INT k, RBR_INT p, const double *U, const RBR_INT *iU, double *out){
     memset(out, 0, n * k * sizeof(double));
 
-    for (int i = 0; i < n; ++i){
-        for (int j = 0; j < p; ++j){
-            int col = iU[i * p + j];
+    for (RBR_INT i = 0; i < n; ++i){
+        for (RBR_INT j = 0; j < p; ++j){
+            RBR_INT col = iU[i * p + j];
             if (col == -1) break;
             out[col * n + i] = U[i * p + j];
         }
