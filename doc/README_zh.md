@@ -128,7 +128,7 @@ pacman -S mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-openblas
 
 ### MacOS
 
-Please use homebrew to install the dependencies before compiling.
+编译前请使用 homebrew 安装所需依赖。
 
 ```
 brew install cmake libomp openblas 
