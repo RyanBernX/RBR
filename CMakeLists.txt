@@ -21,6 +21,7 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 option(BUILD_SHARED_LIBS "Enable shared library. Default: ON" ON)
 option(BUILD_MATLAB_INTERFACE "Enable the build of matlab interface. Default: OFF" OFF)
 option(USE_ILP64 "Build RBR with 64-bit integer interface. Default: OFF" OFF)
+option(ENABLE_EXTRA_PREFIX_PATH_MACOS "Add extra search path when invoking FindXxxx (MacOS only). Default: ON" ON)
 
 # build types
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
